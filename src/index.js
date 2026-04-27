@@ -7,6 +7,7 @@ const pricesRouter = require('./routes/prices');
 const alertsRouter = require('./routes/alerts');
 const subscribeRouter = require('./routes/subscribe');
 const { fetchPrices } = require('./services/priceFetcher');
+const { checkAlerts } = require('./services/alertEngine');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -31,6 +32,11 @@ cron.schedule('*/15 * * * *', async () => {
   try {
     const result = await fetchPrices();
     console.log(`✅ Fetched ${result.length} resources`);
+    
+    // Check alerts after fetching new prices
+    if (result.length > 0) {
+      await checkAlerts();
+    }
   } catch (error) {
     console.error('❌ Price fetch failed:', error.message);
   }
