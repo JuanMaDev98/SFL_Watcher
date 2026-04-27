@@ -195,7 +195,7 @@ async function processAllPrices(chatId) {
 async function processGraph(chatId, resource) {
   try {
     const { getResourceHistory } = require('../services/priceFetcher');
-    const { generateChartUrl, calculateStats } = require('../services/chartService');
+    const { generateChartDataUrl, calculateStats } = require('../services/chartService');
 
     // Use all available data (up to 90 days)
     const history = await getResourceHistory(resource, 90);
@@ -219,8 +219,8 @@ async function processGraph(chatId, resource) {
       `${emoji} vs Avg: ${sign}${stats.pct}%\n\n` +
       `📈 Data Points: ${history.length}`;
 
-    // Generate and send chart
-    const chartUrl = generateChartUrl(resource, history);
+    // Generate chart as data URL (SVG base64)
+    const chartUrl = generateChartDataUrl(resource, history);
     await sendPhoto(chatId, chartUrl, caption);
   } catch (error) {
     console.error('[graph] error:', error.message);
