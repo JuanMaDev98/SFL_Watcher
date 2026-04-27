@@ -1,13 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const { getResourceHistory } = require('../services/priceFetcher');
-const { generateChartUrl } = require('../services/chartService');
 
 const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
 
 /**
  * POST /api/telegram/webhook
- * Receives Telegram updates
  */
 router.post('/webhook', async (req, res) => {
   const { message } = req.body || {};
@@ -23,8 +20,8 @@ router.post('/webhook', async (req, res) => {
   console.log(`[webhook] ${command} from ${chatId}`);
   
   try {
-    // Simple text commands - await each Telegram call
     if (command === '/start') {
+      console.log('[start] Sending welcome message...');
       const resp = await fetch(`${TELEGRAM_API}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -35,12 +32,12 @@ router.post('/webhook', async (req, res) => {
         })
       });
       const result = await resp.json();
-      console.log('[start] sent:', result.ok);
+      console.log('[start] Result:', JSON.stringify(result));
       return res.json({ ok: true });
     }
     
     if (command === '/help') {
-      await fetch(`${TELEGRAM_API}/sendMessage`, {
+      const resp = await fetch(`${TELEGRAM_API}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -54,7 +51,7 @@ router.post('/webhook', async (req, res) => {
     
     if (command === '/list') {
       const resources = ['sunflower','potato','pumpkin','carrot','cabbage','beetroot','cauliflower','parsnip','radish','wheat','kale','apple','blueberry','orange','eggplant','corn','banana','soybean','grape','rice','olive','tomato','lemon','barley','rhubarb','zucchini','yam','broccoli','pepper','onion','turnip','artichoke'];
-      await fetch(`${TELEGRAM_API}/sendMessage`, {
+      const resp = await fetch(`${TELEGRAM_API}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -66,63 +63,16 @@ router.post('/webhook', async (req, res) => {
       return res.json({ ok: true });
     }
     
-    // Commands with DB access
-    if (command === '/debug') {
-      const history = await getResourceHistory('yam', 365);
-      const chartUrl = generateChartUrl('yam', history);
-      await fetch(`${TELEGRAM_API}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          chat_id: chatId, 
-          text: `🔧 Debug:\nHistory: ${history.length} puntos\nURL len: ${chartUrl.length}`, 
-          parse_mode: 'HTML' 
-        })
-      });
-      return res.json({ ok: true });
-    }
-    
-    if (command === '/graph' || command === '/graph@sflwatcher_bot') {
-      const resource = parts.length > 1 ? parts[1].toLowerCase() : null;
+    // Commands that need DB - use a separate endpoint pattern
+    if (command === '/debug' || command === '/graph' || command === '/graph@sflwatcher_bot') {
+      // Redirect to a background handler via separate API call
+      // This allows Vercel to complete the webhook response quickly
+      const resource = command.startsWith('/graph') ? (parts[1] || 'yam') : 'yam';
       
-      if (!resource) {
-        await fetch(`${TELEGRAM_API}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            chat_id: chatId, 
-            text: '❌ Usage: /graph <resource>\nExample: /graph yam', 
-            parse_mode: 'HTML' 
-          })
-        });
-        return res.json({ ok: true });
-      }
+      // Fire and forget to background endpoint
+      const bgUrl = `${process.env.APP_URL || 'https://sfl-watcher.vercel.app'}/api/telegram/process?chatId=${chatId}&cmd=${command}&resource=${resource}`;
+      fetch(bgUrl).catch(e => console.error('[bg] error:', e.message));
       
-      const history = await getResourceHistory(resource, 365);
-      
-      if (!history || history.length === 0) {
-        await fetch(`${TELEGRAM_API}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            chat_id: chatId, 
-            text: `❌ No hay datos para ${resource}.\nEspera a que el cron collecte datos.`, 
-            parse_mode: 'HTML' 
-          })
-        });
-        return res.json({ ok: true });
-      }
-      
-      const chartUrl = generateChartUrl(resource, history);
-      await fetch(`${TELEGRAM_API}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          chat_id: chatId, 
-          text: `📊 ${resource.toUpperCase()}\n${history.length} puntos\n\n${chartUrl}`, 
-          parse_mode: 'HTML' 
-        })
-      });
       return res.json({ ok: true });
     }
     
@@ -130,7 +80,67 @@ router.post('/webhook', async (req, res) => {
     
   } catch (error) {
     console.error('[webhook] Error:', error.message);
-    // Try to send error to user
+    return res.json({ ok: true });
+  }
+});
+
+/**
+ * GET /api/telegram/process
+ * Background processor for DB-heavy commands
+ */
+router.get('/process', async (req, res) => {
+  const { chatId, cmd, resource } = req.query;
+  
+  console.log(`[process] ${cmd} for ${chatId}, resource: ${resource}`);
+  
+  try {
+    if (cmd === '/debug') {
+      // Simple test with mock data
+      await fetch(`${TELEGRAM_API}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          chat_id: chatId, 
+          text: '🔧 Debug: Bot is working!\nDB check pending...', 
+          parse_mode: 'HTML' 
+        })
+      });
+    }
+    
+    if (cmd === '/graph') {
+      // Import here to avoid issues
+      const { getResourceHistory } = require('../services/priceFetcher');
+      const { generateChartUrl } = require('../services/chartService');
+      
+      const history = await getResourceHistory(resource || 'yam', 365);
+      
+      if (!history || history.length === 0) {
+        await fetch(`${TELEGRAM_API}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            chat_id: chatId, 
+            text: `❌ No hay datos para ${resource}.`, 
+            parse_mode: 'HTML' 
+          })
+        });
+        return res.json({ ok: true });
+      }
+      
+      const chartUrl = generateChartUrl(resource || 'yam', history);
+      await fetch(`${TELEGRAM_API}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          chat_id: chatId, 
+          text: `📊 ${(resource || 'yam').toUpperCase()}\n${history.length} puntos\n\n${chartUrl}`, 
+          parse_mode: 'HTML' 
+        })
+      });
+    }
+    
+  } catch (error) {
+    console.error('[process] Error:', error.message);
     try {
       await fetch(`${TELEGRAM_API}/sendMessage`, {
         method: 'POST',
@@ -138,8 +148,9 @@ router.post('/webhook', async (req, res) => {
         body: JSON.stringify({ chat_id: chatId, text: `Error: ${error.message}` })
       });
     } catch (e) {}
-    return res.json({ ok: true });
   }
+  
+  res.json({ ok: true });
 });
 
 /**
