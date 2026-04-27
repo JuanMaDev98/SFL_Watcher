@@ -17,12 +17,12 @@ async function fetchPrices() {
 
     const data = await response.json();
     
-    // SFL API returns { p2p: { resource: price, ... }, updatedAt: "..." }
-    const prices = data.p2p || data;
+    // SFL API returns { data: { p2p: { resource: price, ... } }, ... }
+    const p2pData = data.data?.p2p || data.p2p || data;
     
     const snapshots = [];
     
-    for (const [resource, price] of Object.entries(prices)) {
+    for (const [resource, price] of Object.entries(p2pData)) {
       if (typeof price === 'number') {
         snapshots.push({
           resource: resource.toLowerCase(),
