@@ -110,10 +110,10 @@ router.post('/webhook', async (req, res) => {
       '/price &lt;resource&gt; - Current price\n' +
       '/priceall - All prices\n' +
       '/graph &lt;resource&gt; - Chart\n' +
-      '/alerts - Your alerts\n' +
-      '/alert &lt;resource&gt; &lt;high%&gt; &lt;low%&gt; - Set alert\n' +
-      '/removealert &lt;resource&gt; - Remove alert\n' +
-      '/list - Resource list'
+      '/list - All resources\n' +
+      '/alerts - View your alerts\n' +
+      '/alert &lt;resource&gt; &lt;high%&gt; &lt;low%&gt; - Set/update alert\n' +
+      '/removealert &lt;resource&gt; - Remove alert'
     );
   }
   else if (command === '/help') {
@@ -123,16 +123,20 @@ router.post('/webhook', async (req, res) => {
       '/price &lt;resource&gt; - Price info\n' +
       '/priceall - All prices\n' +
       '/graph &lt;resource&gt; - Chart\n' +
-      '/list - Resources\n\n' +
-      '<b>Alerts:</b>\n' +
+      '/list - 60 resources\n\n' +
+      '<b>Alerts (price vs average):</b>\n' +
       '/alerts - View your alerts\n' +
-      '/alert &lt;resource&gt; &lt;high%&gt; &lt;low%&gt; - Create/update\n' +
-      '/removealert &lt;resource&gt; - Remove'
+      '/alert &lt;resource&gt; &lt;high%&gt; &lt;low%&gt; - Set/update\n' +
+      '/removealert &lt;resource&gt; - Remove alert\n\n' +
+      '<b>Alert examples:</b>\n' +
+      '/alert yam +10 -15\n' +
+      '→ alerts when yam is +10% above avg OR -15% below avg\n\n' +
+      '⚠️ /alert replaces any existing alert for that resource.'
     );
   }
   else if (command === '/list') {
-    const resources = ['sunflower','potato','pumpkin','carrot','cabbage','beetroot','cauliflower','parsnip','radish','wheat','kale','apple','blueberry','orange','eggplant','corn','banana','soybean','grape','rice','olive','tomato','lemon','barley','rhubarb','zucchini','yam','broccoli','pepper','onion','turnip','artichoke'];
-    await sendTelegramAwait(chatId, '📋 <b>Resources:</b>\n' + resources.join(', '));
+    const resources = ['apple','artichoke','banana','barley','beetroot','blueberry','broccoli','bumpkin emblem','cabbage','carrot','cauliflower','celestine','chewed bone','corn','crimstone','dewberry','duskberry','egg','eggplant','feather','frost pebble','goblin emblem','gold','grape','heart leaf','honey','iron','kale','leather','lemon','lunara','merino wool','milk','moonfur','nightshade emblem','obsidian','olive','onion','orange','parsnip','pepper','potato','pumpkin','radish','rhubarb','ribbon','rice','ruffroot','soybean','stone','sunflorian emblem','sunflower','tomato','turnip','wheat','wild grass','wood','wool','yam','zucchini'];
+    await sendTelegramAwait(chatId, '📋 <b>60 Resources:</b>\n' + resources.join(', '));
   }
   else if (command === '/price') {
     const resource = parts.length > 1 ? parts[1].toLowerCase() : null;
@@ -413,13 +417,14 @@ async function processAlertConfig(chatId, input, isListMode) {
 
     const highSign = thresholdHigh >= 0 ? '+' : '';
     const lowSign = thresholdLow >= 0 ? '+' : '';
-    const action = updated ? 'Updated' : 'Created';
+    const action = updated ? 'Updated (replaced old alert)' : 'Created';
 
     await sendTelegramAwait(chatId,
       `✅ ${action} alert for <b>${resource}</b>\n` +
       `▲ High threshold: ${highSign}${thresholdHigh}%\n` +
       `▼ Low threshold: ${lowSign}${thresholdLow}%\n\n` +
-      `You'll be notified when price crosses these thresholds.`
+      `⚠️ Replaces any existing alert for ${resource}.\n` +
+      `You'll be notified when price crosses thresholds.`
     );
 
   } catch (error) {
