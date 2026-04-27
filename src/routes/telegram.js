@@ -46,12 +46,27 @@ router.post('/webhook', async (req, res) => {
     // Command: /graph <resource>
     if (parts[0] === '/graph' || parts[0] === '/graph@sflwatcher_bot') {
       if (parts.length < 2) {
-        await sendTelegramMessage(chatId, '❌ Uso: /graph <recurso>\nEjemplo: /graph yam\n\nRecursos disponibles: sunflower, potato, pumpkin, carrot, cabbage, beetroot, cauliflower, parsnip, radish, wheat, kale, apple, blueberry, orange, eggplant, corn, banana, soybean, grape, rice, olive, tomato, lemon, barley, rhubarb, zucchini, yam, broccoli, pepper, onion, turnip, artichoke');
+        await sendTelegramMessage(chatId, '❌ Usage: /graph <resource>\nExample: /graph yam');
         return res.json({ ok: true });
       }
 
       const resource = parts[1].toLowerCase();
-      await handleGraphCommand(chatId, resource);
+      
+      try {
+        const history = await getResourceHistory(resource, 90);
+        if (!history || history.length === 0) {
+          await sendTelegramMessage(chatId, `❌ No data for ${resource}. Wait for cron to collect data.`);
+          return res.json({ ok: true });
+        }
+        
+        const chartUrl = generateChartUrl(resource, history);
+        
+        // Send as text with URL
+        await sendTelegramMessage(chatId, `📊 ${resource.toUpperCase()} - ${history.length} data points\nChart: ${chartUrl}`);
+      } catch (error) {
+        console.error('[graph] Error:', error.message);
+        await sendTelegramMessage(chatId, `Error: ${error.message}`);
+      }
       return res.json({ ok: true });
     }
 
@@ -113,6 +128,27 @@ async function handleGraphCommand(chatId, resource) {
   } catch (error) {
     console.error('[handleGraphCommand] Error:', error.message);
     await sendTelegramMessage(chatId, `❌ Error: ${error.message}`);
+  }
+}
+
+/**
+ * DEBUG: Send text message in graph handler
+ */
+async function handleGraphCommandText(chatId, resource) {
+  try {
+    const history = await getResourceHistory(resource, 90);
+    if (!history || history.length === 0) {
+      await sendTelegramMessage(chatId, `No data for ${resource}`);
+      return;
+    }
+    
+    const chartUrl = generateChartUrl(resource, history);
+    
+    // Send as text message with URL instead of photo
+    await sendTelegramMessage(chatId, `📊 ${resource.toUpperCase()}\nHistory: ${history.length} points\nChart: ${chartUrl}`);
+  } catch (error) {
+    console.error('[handleGraphCommandText] Error:', error.message);
+    await sendTelegramMessage(chatId, `Error: ${error.message}`);
   }
 }
 
