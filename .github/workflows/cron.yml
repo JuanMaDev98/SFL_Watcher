@@ -1,0 +1,23 @@
+name: SFL Watcher - Price Fetch Cron
+
+on:
+  schedule:
+    # Every 15 minutes
+    - cron: '*/15 * * * *'
+  # Allow manual trigger for testing
+  workflow_dispatch:
+
+jobs:
+  fetch-prices:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Call Price Fetch API
+        run: |
+          curl -X GET "${{ vars.SFL_WATCHER_URL }}/api/cron/fetch-prices" \
+            -H "Content-Type: application/json" \
+            --max-time 60
+
+    env:
+      TZ: 'America/Chicago'
