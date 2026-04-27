@@ -247,12 +247,15 @@ async function processGraph(chatId, resource) {
       `${emoji} vs Avg: ${sign}${stats.pct}%\n\n` +
       `📈 Data Points: ${history.length}`;
 
-    // Generate chart as data URL (SVG base64)
-    const chartUrl = generateChartDataUrl(resource, history);
+    // Generate chart via QuickChart POST API (no URL length limit)
+    const { chartConfig } = generateChartDataUrl(resource, history);
+    const arrayBuffer = await generateChartBuffer(chartConfig);
+    const buffer = Buffer.from(arrayBuffer);
+    const base64 = buffer.toString('base64');
+    const chartUrl = `data:image/png;base64,${base64}`;
     const sent = await sendPhoto(chatId, chartUrl, caption);
     if (!sent) {
       console.error('[graph] sendPhoto failed, attempting sendDocument fallback');
-      // Try sendDocument as fallback
       const resp = await fetch(`${TELEGRAM_API}/sendDocument`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

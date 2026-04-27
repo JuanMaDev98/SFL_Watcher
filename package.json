@@ -9,9 +9,7 @@
     "deploy": "vercel --prod"
   },
   "dependencies": {
-    "@napi-rs/canvas": "^0.1.100",
     "@supabase/supabase-js": "^2.39.0",
-    "canvas": "^3.2.3",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
