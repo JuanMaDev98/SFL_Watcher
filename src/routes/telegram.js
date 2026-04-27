@@ -38,12 +38,13 @@ async function sendTelegramAwait(chatId, text) {
  */
 async function sendPhoto(chatId, photoUrl, caption) {
   try {
-    const resp = await fetch(`${TELEGRAM_API}/sendPhoto`, {
+    // photoUrl can be a data URL (data:image/svg+xml;base64,...) or HTTP URL
+    const resp = await fetch(`${TELEGRAM_API}/sendDocument`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId,
-        photo: photoUrl,
+        document: photoUrl,
         caption: caption,
         parse_mode: 'HTML'
       })
@@ -221,7 +222,11 @@ async function processGraph(chatId, resource) {
 
     // Generate chart as data URL (SVG base64)
     const chartUrl = generateChartDataUrl(resource, history);
-    await sendPhoto(chatId, chartUrl, caption);
+    const sent = await sendPhoto(chatId, chartUrl, caption);
+    if (!sent) {
+      // Fallback: send QuickChart URL
+      await sendTelegramAwait(chatId, `📊 Chart: ${chartUrl.substring(0, 200)}...`);
+    }
   } catch (error) {
     console.error('[graph] error:', error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
