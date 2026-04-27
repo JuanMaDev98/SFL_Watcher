@@ -1,13 +1,12 @@
 require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
-const cron = require('node-cron');
 
 const pricesRouter = require('./routes/prices');
 const alertsRouter = require('./routes/alerts');
 const subscribeRouter = require('./routes/subscribe');
-const { fetchPrices } = require('./services/priceFetcher');
-const { checkAlerts } = require('./services/alertEngine');
+const cronRouter = require('./routes/cron');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -20,26 +19,11 @@ app.use(express.json());
 app.use('/api/prices', pricesRouter);
 app.use('/api/alerts', alertsRouter);
 app.use('/api/subscribe', subscribeRouter);
+app.use('/api/cron', cronRouter);
 
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
-// Cron job: fetch prices every 15 minutes
-cron.schedule('*/15 * * * *', async () => {
-  console.log(`[${new Date().toISOString()}] Running price fetch cron...`);
-  try {
-    const result = await fetchPrices();
-    console.log(`✅ Fetched ${result.length} resources`);
-    
-    // Check alerts after fetching new prices
-    if (result.length > 0) {
-      await checkAlerts();
-    }
-  } catch (error) {
-    console.error('❌ Price fetch failed:', error.message);
-  }
 });
 
 // Error handler
@@ -48,10 +32,12 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`🚀 SFL Watcher API running on port ${PORT}`);
-  console.log(`📊 Health check: http://localhost:${PORT}/health`);
-});
+// Start server (only in local dev, Vercel uses serverless)
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(PORT, () => {
+    console.log(`🚀 SFL Watcher API running on port ${PORT}`);
+    console.log(`📊 Health check: http://localhost:${PORT}/health`);
+  });
+}
 
 module.exports = app;
