@@ -170,6 +170,15 @@ router.post('/webhook', async (req, res) => {
     const resource = parts.length > 1 ? parts[1].toLowerCase() : null;
     await processRemoveAlert(chatId, resource);
   }
+  else if (command === '/subscribe') {
+    await processSubscribe(chatId);
+  }
+  else if (command === '/status') {
+    await processStatus(chatId);
+  }
+  else if (command === '/pay') {
+    await processPay(chatId);
+  }
   else {
     await sendTelegramAwait(chatId, '❌ Unknown command.\nUse /help to see commands.');
   }
@@ -455,6 +464,139 @@ async function processRemoveAlert(chatId, resource) {
 
   } catch (error) {
     console.error('[removealert] error:', error.message);
+    await sendTelegramAwait(chatId, `Error: ${error.message}`);
+  }
+}
+
+async function processSubscribe(chatId) {
+  const { ensureSubscription, getSubscriptionCost, PAYMENT_ADDRESS } = require('../services/subscriptionService');
+
+  try {
+    // Ensure subscription record (creates trial if new)
+    const sub = await ensureSubscription(chatId.toString());
+    const cost = await getSubscriptionCost();
+
+    const lines = [
+      '💳 <b>Subscribe to SFL Watcher Pro</b>',
+      '',
+      `📅 <b>Your Status:</b> ${sub.status.toUpperCase()}`
+    ];
+
+    if (sub.days_remaining !== undefined) {
+      lines.push(`⏰ ${sub.days_remaining} days remaining`);
+    }
+
+    lines.push('');
+    lines.push('<b>💰 Subscription:</b>');
+    lines.push('• 1 month = $1 USD in FLOWER');
+    lines.push('• 7 days FREE trial for new users');
+
+    if (cost) {
+      lines.push('');
+      lines.push(`💐 Current FLOWER price: $${cost.flower_price_usd.toFixed(4)}`);
+      lines.push(`📦 30 days = ~${cost.flower_amount} FLOWER`);
+    }
+
+    lines.push('');
+    lines.push('<b>How to pay:</b>');
+    lines.push('1. Send FLOWER to:');
+    lines.push(`<code>${PAYMENT_ADDRESS}</code>`);
+    lines.push('2. Use /pay <your_tx_hash> to verify');
+    lines.push('');
+    lines.push('Networks: <b>Base</b> or <b>Ronin</b>');
+
+    await sendTelegramAwait(chatId, lines.join('\n'));
+
+  } catch (error) {
+    console.error('[subscribe] error:', error.message);
+    await sendTelegramAwait(chatId, `Error: ${error.message}`);
+  }
+}
+
+async function processStatus(chatId) {
+  const { getSubscriptionStatus } = require('../services/subscriptionService');
+
+  try {
+    const sub = await getSubscriptionStatus(chatId.toString());
+
+    let message;
+    if (sub.status === 'new' || sub.status === 'trial') {
+      message = `✅ <b>Trial Active</b>\n\n⏰ ${sub.days_remaining} days left in your free trial\n\nUse /subscribe to see payment options.`;
+    } else if (sub.status === 'trial_expired') {
+      message = `⏳ <b>Trial Expired</b>\n\nYour free trial ended. Subscribe to continue using the bot.\n\nUse /subscribe to pay.`;
+    } else if (sub.status === 'active') {
+      message = `✅ <b>Subscription Active</b>\n\n📅 ${sub.days_remaining} days remaining\n\nUse /subscribe to extend.`;
+    } else if (sub.status === 'expired') {
+      message = `⏳ <b>Subscription Expired</b>\n\nUse /subscribe to renew.`;
+    } else {
+      message = `❓ Status unknown. Use /subscribe.`;
+    }
+
+    await sendTelegramAwait(chatId, message);
+
+  } catch (error) {
+    console.error('[status] error:', error.message);
+    await sendTelegramAwait(chatId, `Error: ${error.message}`);
+  }
+}
+
+async function processPay(chatId, txHash) {
+  const { verifyFlowerPayment } = require('../services/paymentVerifier');
+  const { recordPayment, addSubscriptionDays, getSubscriptionCost, isTxHashUsed, PAYMENT_ADDRESS } = require('../services/subscriptionService');
+
+  try {
+    if (!txHash) {
+      const cost = await getSubscriptionCost();
+      await sendTelegramAwait(chatId,
+        '💐 <b>Pay with FLOWER</b>\n\n' +
+        `Send FLOWER to:\n<code>${PAYMENT_ADDRESS}</code>\n\n` +
+        'Then send:\n/pay <your_tx_hash>\n\n' +
+        'Example: /pay 0x1234...\n\n' +
+        'Supported networks: <b>Base</b>, <b>Ronin</b>'
+      );
+      return;
+    }
+
+    // Validate tx hash format
+    if (!txHash.startsWith('0x') || txHash.length !== 66) {
+      await sendTelegramAwait(chatId, '❌ Invalid tx hash format. Must be 66 chars starting with 0x.');
+      return;
+    }
+
+    // Check if already used
+    const used = await isTxHashUsed(txHash);
+    if (used) {
+      await sendTelegramAwait(chatId, '⚠️ This transaction was already used. Each tx can only be used once.');
+      return;
+    }
+
+    // Verify payment on-chain
+    await sendTelegramAwait(chatId, '🔍 Verifying payment on-chain...');
+    const result = await verifyFlowerPayment(txHash);
+
+    if (!result.success) {
+      await sendTelegramAwait(chatId, `❌ Verification failed: ${result.error}\n\nMake sure you sent FLOWER to the correct address and the transaction is confirmed.`);
+      return;
+    }
+
+    // Payment verified! Add subscription
+    const added = await addSubscriptionDays(chatId.toString(), 30);
+    await recordPayment(chatId.toString(), txHash, result.network, result.amount, null);
+
+    if (added) {
+      await sendTelegramAwait(chatId,
+        `✅ <b>Payment Verified!</b>\n\n` +
+        `💐 Sent: ${result.amount.toFixed(4)} FLOWER\n` +
+        `🔗 Network: ${result.network.toUpperCase()}\n` +
+        `📅 +30 days added to your subscription!\n\n` +
+        `Use /status to check your subscription.`
+      );
+    } else {
+      await sendTelegramAwait(chatId, '❌ Error adding subscription. Contact support.');
+    }
+
+  } catch (error) {
+    console.error('[pay] error:', error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
   }
 }
