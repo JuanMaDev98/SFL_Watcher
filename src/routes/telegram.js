@@ -29,6 +29,7 @@ ChatID: ${chatId}`,
       parse_mode: 'HTML' 
     })
   }).catch(e => console.error('[webhook test] Error:', e.message));
+});
 
 /**
  * GET /api/telegram/process
