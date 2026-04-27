@@ -9,193 +9,199 @@ function generateChartDataUrl(resource, history) {
     return null;
   }
 
-  const width = 640;
-  const height = 400;
-  const padding = { top: 50, right: 25, bottom: 65, left: 80 };
+  // Chart dimensions
+  const canvasW = 640;
+  const canvasH = 400;
+  const padL = 80;
+  const padR = 30;
+  const padT = 50;
+  const padB = 70;
 
-  const canvas = createCanvas(width, height);
+  const chartW = canvasW - padL - padR;
+  const chartH = canvasH - padT - padB;
+
+  const canvas = createCanvas(canvasW, canvasH);
   const ctx = canvas.getContext('2d');
 
-  // Background
+  // White background
   ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, width, height);
+  ctx.fillRect(0, 0, canvasW, canvasH);
 
+  // Collect data
+  const n = history.length;
   const prices = history.map(h => parseFloat(h.price));
-  const minPrice = Math.min(...prices);
-  const maxPrice = Math.max(...prices);
-  const avgPrice = prices.reduce((a, b) => a + b, 0) / prices.length;
-  const priceRange = maxPrice - minPrice || 1;
+  const minP = Math.min(...prices);
+  const maxP = Math.max(...prices);
+  const avgP = prices.reduce((a, b) => a + b, 0) / prices.length;
+  const range = maxP - minP || 1;
 
-  // Find min/max indices
+  // Find min/max positions in the sampled data
   let minIdx = 0, maxIdx = 0;
-  prices.forEach((p, i) => {
-    if (p === minPrice) minIdx = i;
-    if (p === maxPrice) maxIdx = i;
-  });
+  prices.forEach((p, i) => { if (p === minP) minIdx = i; if (p === maxP) maxIdx = i; });
 
-  const sampled = sampleDataWithIndices(history, 50);
+  // Sample data for rendering (max 50 points)
+  const sampled = sampleData(history, 50);
   const sampledPrices = sampled.map(h => parseFloat(h.price));
-  const n = sampled.length;
-  const chartWidth = width - padding.left - padding.right;
-  const chartHeight = height - padding.top - padding.bottom;
+  const sampledN = sampled.length;
 
-  const xScale = (i) => padding.left + (i / Math.max(n - 1, 1)) * chartWidth;
-  const yScale = (p) => padding.top + chartHeight - ((p - minPrice) / priceRange) * chartHeight;
+  // Scaling helpers
+  const xPx = (i) => padL + (i / Math.max(sampledN - 1, 1)) * chartW;
+  const yPx = (p) => padT + chartH - ((p - minP) / range) * chartH;
 
-  // ---- GRID ----
-  ctx.strokeStyle = '#e0e0e0';
+  // === DRAW EVERYTHING ===
+
+  // Grid lines (horizontal)
+  ctx.strokeStyle = '#e8e8e8';
   ctx.lineWidth = 1;
-  const numY = 6;
-  for (let i = 0; i <= numY; i++) {
-    const y = yScale(minPrice + (priceRange * i) / numY);
+  for (let i = 0; i <= 6; i++) {
+    const y = yPx(minP + (range * i) / 6);
     ctx.beginPath();
-    ctx.moveTo(padding.left, y);
-    ctx.lineTo(width - padding.right, y);
+    ctx.moveTo(padL, y);
+    ctx.lineTo(padL + chartW, y);
     ctx.stroke();
   }
 
-  // ---- Y-AXIS LINE ----
-  ctx.strokeStyle = '#999999';
-  ctx.lineWidth = 1;
+  // Y-axis (left black line)
+  ctx.strokeStyle = '#aaaaaa';
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.moveTo(padding.left, padding.top);
-  ctx.lineTo(padding.left, height - padding.bottom);
+  ctx.moveTo(padL, padT);
+  ctx.lineTo(padL, padT + chartH);
   ctx.stroke();
 
-  // ---- Y-AXIS LABELS (prices) ----
-  ctx.fillStyle = '#444444';
+  // Y-axis labels (price values on the left)
+  ctx.fillStyle = '#333333';
   ctx.font = 'bold 11px Arial';
   ctx.textAlign = 'right';
-  for (let i = 0; i <= numY; i++) {
-    const price = minPrice + (priceRange * i) / numY;
-    const y = yScale(price);
-    ctx.fillText(price.toFixed(4), padding.left - 6, y + 4);
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i <= 6; i++) {
+    const price = minP + (range * i) / 6;
+    const y = yPx(price);
+    ctx.fillText(price.toFixed(4), padL - 5, y);
   }
 
-  // Y-axis title
+  // Y-axis title (rotated)
   ctx.save();
-  ctx.translate(14, height / 2);
+  ctx.translate(12, padT + chartH / 2);
   ctx.rotate(-Math.PI / 2);
   ctx.fillStyle = '#555555';
-  ctx.font = 'bold 12px Arial';
+  ctx.font = 'bold 11px Arial';
   ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
   ctx.fillText('PRICE (SFL)', 0, 0);
   ctx.restore();
 
-  // ---- X-AXIS LINE ----
-  ctx.strokeStyle = '#999999';
+  // X-axis (bottom black line)
+  ctx.strokeStyle = '#aaaaaa';
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.moveTo(padding.left, height - padding.bottom);
-  ctx.lineTo(width - padding.right, height - padding.bottom);
+  ctx.moveTo(padL, padT + chartH);
+  ctx.lineTo(padL + chartW, padT + chartH);
   ctx.stroke();
 
-  // ---- X-AXIS LABELS (dates) ----
+  // X-axis labels (dates)
   ctx.fillStyle = '#555555';
   ctx.font = '10px Arial';
   ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
 
-  // Always show first, middle, last
-  const labelIndices = [0, Math.floor(n / 2), n - 1];
-  labelIndices.forEach(i => {
+  // Show up to 5 date labels evenly
+  const maxXLabels = 5;
+  const xStep = Math.max(1, Math.floor(sampledN / maxXLabels));
+  for (let i = 0; i < sampledN; i += xStep) {
     const date = new Date(sampled[i].created_at);
-    const x = xScale(i);
-    const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][date.getDay()];
-    const label = `${day} ${date.getMonth() + 1}/${date.getDate()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-    ctx.fillText(label, x, height - padding.bottom + 18);
-  });
-
-  // Also show second and second-to-last if there's room
-  if (n > 4) {
-    const x1 = xScale(1);
-    const d1 = new Date(sampled[1].created_at);
-    const day1 = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d1.getDay()];
-    ctx.fillText(`${day1} ${d1.getMonth() + 1}/${d1.getDate()} ${d1.getHours().toString().padStart(2, '0')}:${d1.getMinutes().toString().padStart(2, '0')}`, x1, height - padding.bottom + 18);
-
-    const x2 = xScale(n - 2);
-    const d2 = new Date(sampled[n - 2].created_at);
-    const day2 = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d2.getDay()];
-    ctx.fillText(`${day2} ${d2.getMonth() + 1}/${d2.getDate()} ${d2.getHours().toString().padStart(2, '0')}:${d2.getMinutes().toString().padStart(2, '0')}`, x2, height - padding.bottom + 18);
+    const x = xPx(i);
+    const label = `${date.getMonth() + 1}/${date.getDate()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+    ctx.fillText(label, x, padT + chartH + 8);
   }
+  // Always label last point
+  const lastDate = new Date(sampled[sampledN - 1].created_at);
+  ctx.fillText(`${lastDate.getMonth() + 1}/${lastDate.getDate()} ${lastDate.getHours().toString().padStart(2, '0')}:${lastDate.getMinutes().toString().padStart(2, '0')}`, xPx(sampledN - 1), padT + chartH + 8);
 
   // X-axis title
   ctx.fillStyle = '#555555';
-  ctx.font = 'bold 12px Arial';
+  ctx.font = 'bold 11px Arial';
   ctx.textAlign = 'center';
-  ctx.fillText('DATE & TIME', width / 2, height - 8);
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('DATE / TIME', padL + chartW / 2, canvasH - 5);
 
-  // ---- AVG LINE (dashed) ----
-  const avgY = yScale(avgPrice);
+  // Average line (dashed red)
+  const avgY = yPx(avgP);
   ctx.setLineDash([5, 4]);
   ctx.strokeStyle = '#c62828';
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.moveTo(padding.left, avgY);
-  ctx.lineTo(width - padding.right, avgY);
+  ctx.moveTo(padL, avgY);
+  ctx.lineTo(padL + chartW, avgY);
   ctx.stroke();
   ctx.setLineDash([]);
 
+  // AVG label
   ctx.fillStyle = '#c62828';
   ctx.font = 'bold 10px Arial';
   ctx.textAlign = 'left';
-  ctx.fillText(`AVG ${avgPrice.toFixed(4)}`, padding.left + 4, avgY - 5);
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(`AVG ${avgP.toFixed(4)}`, padL + 3, avgY - 4);
 
-  // ---- PRICE LINE ----
+  // Price line (green)
   ctx.strokeStyle = '#2e7d32';
   ctx.lineWidth = 2;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
   ctx.beginPath();
   sampledPrices.forEach((p, i) => {
-    const x = xScale(i);
-    const y = yScale(p);
+    const x = xPx(i);
+    const y = yPx(p);
     if (i === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   });
   ctx.stroke();
 
-  // Area fill
-  ctx.fillStyle = 'rgba(46, 125, 50, 0.08)';
+  // Fill under price line
+  ctx.fillStyle = 'rgba(46, 125, 50, 0.07)';
   ctx.beginPath();
-  ctx.moveTo(xScale(0), yScale(sampledPrices[0]));
-  sampledPrices.forEach((p, i) => ctx.lineTo(xScale(i), yScale(p)));
-  ctx.lineTo(xScale(n - 1), height - padding.bottom);
-  ctx.lineTo(xScale(0), height - padding.bottom);
+  ctx.moveTo(xPx(0), yPx(sampledPrices[0]));
+  sampledPrices.forEach((p, i) => ctx.lineTo(xPx(i), yPx(p)));
+  ctx.lineTo(xPx(sampledN - 1), padT + chartH);
+  ctx.lineTo(xPx(0), padT + chartH);
   ctx.closePath();
   ctx.fill();
 
-  // ---- MIN (blue triangle) ----
-  const minX = xScale(minIdx);
-  const minY = yScale(minPrice);
+  // MIN marker (blue triangle pointing down)
+  const minX = xPx(minIdx);
+  const minY = yPx(minP);
   ctx.fillStyle = '#1565c0';
   ctx.beginPath();
   ctx.moveTo(minX, minY + 10);
-  ctx.lineTo(minX - 7, minY - 5);
-  ctx.lineTo(minX + 7, minY - 5);
+  ctx.lineTo(minX - 7, minY - 6);
+  ctx.lineTo(minX + 7, minY - 6);
   ctx.closePath();
   ctx.fill();
-  ctx.font = 'bold 10px Arial';
   ctx.fillStyle = '#1565c0';
+  ctx.font = 'bold 10px Arial';
   ctx.textAlign = 'center';
-  ctx.fillText(`MIN ${minPrice.toFixed(4)}`, minX, minY - 9);
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(`MIN ${minP.toFixed(4)}`, minX, minY - 9);
 
-  // ---- MAX (orange triangle) ----
-  const maxX = xScale(maxIdx);
-  const maxY = yScale(maxPrice);
+  // MAX marker (orange triangle pointing up)
+  const maxX = xPx(maxIdx);
+  const maxY = yPx(maxP);
   ctx.fillStyle = '#e65100';
   ctx.beginPath();
   ctx.moveTo(maxX, maxY - 10);
-  ctx.lineTo(maxX - 7, maxY + 5);
-  ctx.lineTo(maxX + 7, maxY + 5);
+  ctx.lineTo(maxX - 7, maxY + 6);
+  ctx.lineTo(maxX + 7, maxY + 6);
   ctx.closePath();
   ctx.fill();
-  ctx.font = 'bold 10px Arial';
   ctx.fillStyle = '#e65100';
+  ctx.font = 'bold 10px Arial';
   ctx.textAlign = 'center';
-  ctx.fillText(`MAX ${maxPrice.toFixed(4)}`, maxX, maxY + 18);
+  ctx.textBaseline = 'top';
+  ctx.fillText(`MAX ${maxP.toFixed(4)}`, maxX, maxY + 18);
 
-  // ---- CURRENT (green dot) ----
-  const lastX = xScale(n - 1);
-  const lastY = yScale(sampledPrices[n - 1]);
+  // CURRENT price dot (green filled circle)
+  const lastX = xPx(sampledN - 1);
+  const lastY = yPx(sampledPrices[sampledN - 1]);
   ctx.fillStyle = '#1b5e20';
   ctx.beginPath();
   ctx.arc(lastX, lastY, 5, 0, Math.PI * 2);
@@ -203,36 +209,48 @@ function generateChartDataUrl(resource, history) {
   ctx.strokeStyle = '#ffffff';
   ctx.lineWidth = 2;
   ctx.stroke();
-  ctx.font = 'bold 10px Arial';
   ctx.fillStyle = '#1b5e20';
+  ctx.font = 'bold 10px Arial';
   ctx.textAlign = 'left';
-  ctx.fillText(`NOW ${sampledPrices[n - 1].toFixed(4)}`, lastX + 9, lastY + 3);
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`NOW ${sampledPrices[sampledN - 1].toFixed(4)}`, lastX + 9, lastY + 3);
 
-  // ---- TITLE ----
+  // Title
   ctx.fillStyle = '#1a1a1a';
   ctx.font = 'bold 16px Arial';
   ctx.textAlign = 'center';
-  ctx.fillText(`${resource.toUpperCase()} - Price History`, width / 2, 20);
-  ctx.fillStyle = '#777777';
-  ctx.font = '11px Arial';
-  ctx.fillText(`${sampledPrices.length} data points`, width / 2, 36);
+  ctx.textBaseline = 'top';
+  ctx.fillText(`${resource.toUpperCase()} - Price History`, canvasW / 2, 12);
 
+  // Subtitle (data points count)
+  ctx.fillStyle = '#888888';
+  ctx.font = '11px Arial';
+  ctx.fillText(`${sampledN} data points`, canvasW / 2, 32);
+
+  // Legend top-right
+  ctx.font = '10px Arial';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = '#c62828';
+  ctx.fillText('— AVG', canvasW - 8, 12);
+
+  // Convert to PNG buffer
   const buffer = canvas.toBuffer('image/png');
   return `data:image/png;base64,${buffer.toString('base64')}`;
 }
 
-function sampleDataWithIndices(data, maxPoints) {
+function sampleData(data, maxPoints) {
   if (data.length <= maxPoints) {
-    return data.map((h, i) => ({ ...h, origIdx: i }));
+    return data;
   }
   const step = data.length / maxPoints;
   const sampled = [];
   for (let i = 0; i < maxPoints; i++) {
     const index = Math.floor(i * step);
-    sampled.push({ ...data[index], origIdx: index });
+    sampled.push(data[index]);
   }
-  if (sampled[sampled.length - 1].origIdx !== data.length - 1) {
-    sampled[sampled.length - 1] = { ...data[data.length - 1], origIdx: data.length - 1 };
+  if (sampled[sampled.length - 1] !== data[data.length - 1]) {
+    sampled[sampled.length - 1] = data[data.length - 1];
   }
   return sampled;
 }
