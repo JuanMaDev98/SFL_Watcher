@@ -5,6 +5,28 @@ const { generateChartUrl } = require('../services/chartService');
 
 const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
 
+// Debug test endpoint
+router.get('/test', async (req, res) => {
+  const chatId = '1166287745';
+  try {
+    console.log('[TEST] Sending test message...');
+    const response = await fetch(`${TELEGRAM_API}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: '🐣 Test from SFL Watcher API!'
+      })
+    });
+    const result = await response.json();
+    console.log('[TEST] Result:', JSON.stringify(result));
+    res.json(result);
+  } catch (error) {
+    console.error('[TEST] Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 /**
  * Handle incoming Telegram updates (webhook)
  * POST /api/telegram/webhook
