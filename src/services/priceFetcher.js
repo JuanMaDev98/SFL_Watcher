@@ -1,0 +1,122 @@
+const supabase = require('../lib/supabase');
+
+const SFL_API_URL = process.env.SFL_API_URL || 'https://sfl.world/api/v1';
+
+/**
+ * Fetch prices from SFL API and save to database
+ */
+async function fetchPrices() {
+  console.log(`Fetching prices from ${SFL_API_URL}/prices...`);
+
+  try {
+    const response = await fetch(`${SFL_API_URL}/prices`);
+    
+    if (!response.ok) {
+      throw new Error(`SFL API returned ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    // SFL API returns { p2p: { resource: price, ... }, updatedAt: "..." }
+    const prices = data.p2p || data;
+    
+    const snapshots = [];
+    
+    for (const [resource, price] of Object.entries(prices)) {
+      if (typeof price === 'number') {
+        snapshots.push({
+          resource: resource.toLowerCase(),
+          price: price
+        });
+      }
+    }
+
+    if (snapshots.length === 0) {
+      console.log('No prices to insert');
+      return [];
+    }
+
+    // Insert all snapshots
+    const { data: inserted, error } = await supabase
+      .from('price_snapshots')
+      .insert(snapshots)
+      .select();
+
+    if (error) {
+      console.error('❌ Supabase insert error:', error.message);
+      throw error;
+    }
+
+    console.log(`✅ Inserted ${inserted.length} price snapshots`);
+    return inserted;
+
+  } catch (error) {
+    console.error('❌ fetchPrices error:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Get stats for a specific resource
+ */
+async function getResourceStats(resource) {
+  const { data, error } = await supabase
+    .rpc('get_price_stats', { resource_name: resource });
+
+  if (error) throw error;
+  return data[0];
+}
+
+/**
+ * Get all resources with latest stats
+ */
+async function getAllPrices() {
+  // Get all distinct resources
+  const { data: resources } = await supabase
+    .from('price_snapshots')
+    .select('resource')
+    .order('resource');
+
+  const uniqueResources = [...new Set(resources.map(r => r.resource))];
+  
+  const results = [];
+  
+  for (const resource of uniqueResources) {
+    const stats = await getResourceStats(resource);
+    if (stats) {
+      results.push({
+        resource,
+        current_price: stats.current_price,
+        avg_price: stats.avg_price,
+        min_price: stats.min_price,
+        max_price: stats.max_price,
+        percent_vs_avg: stats.percent_vs_avg,
+        snapshot_count: stats.snapshot_count
+      });
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Get price history for a resource (last 30 days)
+ */
+async function getResourceHistory(resource, days = 30) {
+  const { data, error } = await supabase
+    .from('price_snapshots')
+    .select('price, created_at')
+    .eq('resource', resource)
+    .gte('created_at', `NOW() - INTERVAL '${days} days'`)
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+  return data;
+}
+
+module.exports = {
+  fetchPrices,
+  getResourceStats,
+  getAllPrices,
+  getResourceHistory
+};
