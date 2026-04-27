@@ -117,42 +117,32 @@ async function sendTelegramMessage(chatId, text) {
  * Send photo via Telegram (chart image)
  */
 async function sendTelegramPhoto(chatId, photoUrl, caption) {
-  console.log(`[sendTelegramPhoto] Starting for chatId=${chatId}`);
-  console.log(`[sendTelegramPhoto] PhotoUrl length: ${photoUrl?.length || 'undefined'}`);
+  console.log(`[sendTelegramPhoto] URL length: ${photoUrl.length}`);
   
   try {
-    // Download image first
-    console.log('[sendTelegramPhoto] Downloading from QuickChart...');
-    const response = await fetch(photoUrl);
-    console.log(`[sendTelegramPhoto] QuickChart response: ${response.status}`);
-    
-    if (!response.ok) {
-      throw new Error(`QuickChart fetch failed: ${response.status}`);
-    }
-    
-    const buffer = await response.arrayBuffer();
-    console.log(`[sendTelegramPhoto] Buffer size: ${buffer.byteLength} bytes`);
-    
-    const base64 = Buffer.from(buffer).toString('base64');
-    console.log(`[sendTelegramPhoto] Base64 length: ${base64.length}`);
-    
-    // Send to Telegram
-    console.log('[sendTelegramPhoto] Sending to Telegram...');
-    const telegramResponse = await fetch(`${TELEGRAM_API}/sendPhoto`, {
+    // Send photo using URL (QuickChart is public, Telegram should fetch it)
+    const response = await fetch(`${TELEGRAM_API}/sendPhoto`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId,
-        photo: `data:image/png;base64,${base64}`,
+        photo: photoUrl,
         caption: caption
       })
     });
     
-    const result = await telegramResponse.json();
-    console.log(`[sendTelegramPhoto] Telegram response:`, JSON.stringify(result));
+    const result = await response.json();
+    console.log(`[sendTelegramPhoto] Result: ok=${result.ok}`);
     
+    if (!result.ok) {
+      console.error('[sendTelegramPhoto] Error:', result.description);
+      // Fallback: send chart URL as text
+      await sendTelegramMessage(chatId, `📈 ${caption}\n
+Chart: ${photoUrl}`);
+    }
   } catch (error) {
     console.error('[sendTelegramPhoto] Error:', error.message);
+    await sendTelegramMessage(chatId, `📊 Chart: ${photoUrl}`);
   }
 }
 
