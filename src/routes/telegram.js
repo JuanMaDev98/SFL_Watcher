@@ -64,23 +64,32 @@ router.post('/webhook', async (req, res) => {
  * Handle /graph command
  */
 async function handleGraphCommand(chatId, resource) {
+  console.log(`[handleGraphCommand] Called with resource=${resource}, chatId=${chatId}`);
+  
   try {
     // Get price history (90 days)
+    console.log(`[handleGraphCommand] Fetching history for ${resource}...`);
     const history = await getResourceHistory(resource, 90);
+    console.log(`[handleGraphCommand] History count: ${history?.length || 0}`);
 
     if (!history || history.length === 0) {
-      await sendTelegramMessage(chatId, `❌ No hay datos para <b>${resource}</b>\n\nEs posible que el recurso no exista o aún no tengamos datos collectados.`);
+      console.log(`[handleGraphCommand] No data for ${resource}`);
+      await sendTelegramMessage(chatId, `❌ No hay datos para <b>${resource}</b>. Intenta de nuevo en unos minutos cuando el cron haya colectado datos.`);
       return;
     }
 
     // Generate chart URL
+    console.log(`[handleGraphCommand] Generating chart...`);
     const chartUrl = generateChartUrl(resource, history);
+    console.log(`[handleGraphCommand] Chart URL length: ${chartUrl?.length || 'undefined'}`);
 
     // Send chart image
+    console.log(`[handleGraphCommand] Sending photo...`);
     await sendTelegramPhoto(chatId, chartUrl, `📈 ${resource.toUpperCase()} - 90 días`);
+    console.log(`[handleGraphCommand] Done!`);
 
   } catch (error) {
-    console.error('Graph command error:', error.message);
+    console.error('[handleGraphCommand] Error:', error.message);
     await sendTelegramMessage(chatId, `❌ Error: ${error.message}`);
   }
 }
@@ -108,13 +117,28 @@ async function sendTelegramMessage(chatId, text) {
  * Send photo via Telegram (chart image)
  */
 async function sendTelegramPhoto(chatId, photoUrl, caption) {
+  console.log(`[sendTelegramPhoto] Starting for chatId=${chatId}`);
+  console.log(`[sendTelegramPhoto] PhotoUrl length: ${photoUrl?.length || 'undefined'}`);
+  
   try {
-    // Download image first (Telegram URL limit is 1024 chars)
+    // Download image first
+    console.log('[sendTelegramPhoto] Downloading from QuickChart...');
     const response = await fetch(photoUrl);
-    const buffer = await response.arrayBuffer();
-    const base64 = Buffer.from(buffer).toString('base64');
+    console.log(`[sendTelegramPhoto] QuickChart response: ${response.status}`);
     
-    await fetch(`${TELEGRAM_API}/sendPhoto`, {
+    if (!response.ok) {
+      throw new Error(`QuickChart fetch failed: ${response.status}`);
+    }
+    
+    const buffer = await response.arrayBuffer();
+    console.log(`[sendTelegramPhoto] Buffer size: ${buffer.byteLength} bytes`);
+    
+    const base64 = Buffer.from(buffer).toString('base64');
+    console.log(`[sendTelegramPhoto] Base64 length: ${base64.length}`);
+    
+    // Send to Telegram
+    console.log('[sendTelegramPhoto] Sending to Telegram...');
+    const telegramResponse = await fetch(`${TELEGRAM_API}/sendPhoto`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -123,8 +147,12 @@ async function sendTelegramPhoto(chatId, photoUrl, caption) {
         caption: caption
       })
     });
+    
+    const result = await telegramResponse.json();
+    console.log(`[sendTelegramPhoto] Telegram response:`, JSON.stringify(result));
+    
   } catch (error) {
-    console.error('Telegram photo error:', error.message);
+    console.error('[sendTelegramPhoto] Error:', error.message);
   }
 }
 
