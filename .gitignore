@@ -30,3 +30,6 @@ service-account.json
 
 # Misc
 secrets/
+
+# Conversations (always outside project)
+conversations/
