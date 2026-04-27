@@ -46,6 +46,16 @@ function generateChartDataUrl(resource, history) {
         }),
         pointBorderColor: '#ffffff',
         pointBorderWidth: 1.5
+      }, {
+        // AVG line dataset
+        label: 'AVG',
+        data: prices.map(() => avgPrice),
+        borderColor: '#c62828',
+        borderWidth: 1.5,
+        borderDash: [5, 4],
+        fill: false,
+        tension: 0,
+        pointRadius: 0
       }]
     },
     options: {
@@ -55,26 +65,6 @@ function generateChartDataUrl(resource, history) {
       devicePixelRatio: 1,
       plugins: {
         legend: { display: false },
-        annotation: {
-          annotations: {
-            avgLine: {
-              type: 'line',
-              yMin: avgPrice,
-              yMax: avgPrice,
-              borderColor: '#c62828',
-              borderWidth: 1.5,
-              borderDash: [5, 4],
-              label: {
-                display: true,
-                content: `AVG ${avgPrice.toFixed(4)}`,
-                position: 'start',
-                backgroundColor: '#c62828',
-                color: '#ffffff',
-                font: { size: 10, bold: true }
-              }
-            }
-          }
-        },
         tooltip: {
           callbacks: {
             label: (ctx) => `${ctx.parsed.y.toFixed(6)} SFL`
@@ -92,7 +82,8 @@ function generateChartDataUrl(resource, history) {
           ticks: { font: { size: 11, bold: true }, color: '#444', callback: (v) => v.toFixed(4) },
           grid: { color: '#e8e8e8' }
         }
-      }
+      },
+      interaction: { mode: 'index', intersect: false }
     }
   };
 
