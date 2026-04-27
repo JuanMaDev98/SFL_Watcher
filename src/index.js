@@ -7,6 +7,7 @@ const pricesRouter = require('./routes/prices');
 const alertsRouter = require('./routes/alerts');
 const subscribeRouter = require('./routes/subscribe');
 const cronRouter = require('./routes/cron');
+const telegramRouter = require('./routes/telegram');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -20,6 +21,7 @@ app.use('/api/prices', pricesRouter);
 app.use('/api/alerts', alertsRouter);
 app.use('/api/subscribe', subscribeRouter);
 app.use('/api/cron', cronRouter);
+app.use('/api/telegram', telegramRouter);
 
 // Health check
 app.get('/health', (req, res) => {
