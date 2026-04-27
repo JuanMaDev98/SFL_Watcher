@@ -79,33 +79,32 @@ router.post('/webhook', async (req, res) => {
   if (command === '/start') {
     await sendTelegramAwait(chatId,
       '🦉 <b>SFL Watcher</b>\n\n' +
-      '/price <recurso> - Precio actual\n' +
-      '/priceall - Todos los precios\n' +
-      '/graph <recurso> - Gráfica\n' +
-      '/list - Recursos'
+      '/price &lt;resource&gt; - Current price\n' +
+      '/priceall - All prices\n' +
+      '/graph &lt;resource&gt; - Chart\n' +
+      '/list - Resource list'
     );
   }
   else if (command === '/help') {
     await sendTelegramAwait(chatId,
-      '📊 <b>Comandos:</b>\n' +
-      '/price <recurso> - Precio actual\n' +
-      '/priceall - Todos los precios\n' +
-      '/graph <recurso> - Gráfica\n' +
-      '/list - Recursos'
+      '📊 <b>Commands:</b>\n' +
+      '/price &lt;resource&gt; - Current price\n' +
+      '/priceall - All prices\n' +
+      '/graph &lt;resource&gt; - Chart\n' +
+      '/list - Resource list'
     );
   }
   else if (command === '/list') {
     const resources = ['sunflower','potato','pumpkin','carrot','cabbage','beetroot','cauliflower','parsnip','radish','wheat','kale','apple','blueberry','orange','eggplant','corn','banana','soybean','grape','rice','olive','tomato','lemon','barley','rhubarb','zucchini','yam','broccoli','pepper','onion','turnip','artichoke'];
-    await sendTelegramAwait(chatId, '📋 <b>Recursos:</b>\n' + resources.join(', '));
+    await sendTelegramAwait(chatId, '📋 <b>Resources:</b>\n' + resources.join(', '));
   }
   else if (command === '/price') {
     const resource = parts.length > 1 ? parts[1].toLowerCase() : null;
     if (!resource) {
-      await sendTelegramAwait(chatId, '❌ Usage: /price <resource>\nExample: /price yam');
+      await sendTelegramAwait(chatId, '❌ Usage: /price &lt;resource&gt;\nExample: /price yam');
       res.json({ ok: true });
       return;
     }
-    // Process and respond before finishing
     await processPriceSimple(chatId, resource);
   }
   else if (command === '/priceall') {
@@ -114,7 +113,7 @@ router.post('/webhook', async (req, res) => {
   else if (command === '/graph' || command === '/graph@sflwatcher_bot') {
     const resource = parts.length > 1 ? parts[1].toLowerCase() : null;
     if (!resource) {
-      await sendTelegramAwait(chatId, '❌ Usage: /graph <recurso>\nExample: /graph yam');
+      await sendTelegramAwait(chatId, '❌ Usage: /graph &lt;resource&gt;\nExample: /graph yam');
       res.json({ ok: true });
       return;
     }
@@ -124,7 +123,7 @@ router.post('/webhook', async (req, res) => {
     await processDebug(chatId);
   }
   else {
-    await sendTelegramAwait(chatId, '❌ Comando no reconocido.\nUsa /help para ver comandos.');
+    await sendTelegramAwait(chatId, '❌ Unknown command.\nUse /help to see commands.');
   }
 
   res.json({ ok: true });
@@ -137,10 +136,12 @@ router.post('/webhook', async (req, res) => {
 async function processPriceSimple(chatId, resource) {
   try {
     const { getResourceHistory } = require('../services/priceFetcher');
-    const history = await getResourceHistory(resource, 30);
+
+    // Use 90 days of data
+    const history = await getResourceHistory(resource, 90);
 
     if (!history || history.length === 0) {
-      await sendTelegramAwait(chatId, `❌ No hay datos para ${resource}.\nEspera a que el cron collecte datos.`);
+      await sendTelegramAwait(chatId, `❌ No data for ${resource}.\nWait for cron to collect data.`);
       return;
     }
 
@@ -155,11 +156,12 @@ async function processPriceSimple(chatId, resource) {
     const sign = pct >= 0 ? '+' : '';
 
     await sendTelegramAwait(chatId,
-      `🥕 <b>${resource.toUpperCase()}</b>\n\n` +
-      `💰 Actual: <code>${current}</code>\n` +
-      `📊 Mín: ${min} | Máx: ${max}\n` +
-      `📐 Promedio: ${avg.toFixed(6)}\n` +
-      `${emoji} vs Promedio: ${sign}${pct}%`
+      `<b>${resource.toUpperCase()}</b>\n\n` +
+      `💰 Current: <code>${current.toFixed(6)}</code>\n` +
+      `📊 Min: ${min.toFixed(6)} | Max: ${max.toFixed(6)}\n` +
+      `📐 Avg: ${avg.toFixed(6)}\n` +
+      `${emoji} vs Avg: ${sign}${pct}%\n\n` +
+      `📈 Data Points: ${history.length}`
     );
   } catch (error) {
     console.error('[price] error:', error.message);
@@ -173,19 +175,17 @@ async function processAllPrices(chatId) {
     const prices = await getAllPrices();
 
     if (!prices || prices.length === 0) {
-      await sendTelegramAwait(chatId, '❌ No hay precios disponibles.');
+      await sendTelegramAwait(chatId, '❌ No prices available.');
       return;
     }
 
-    // Get top 15 by snapshot count
-    const top = prices.slice(0, 15);
-    const lines = top.map(r => {
+    const lines = prices.map(r => {
       const pct = r.percent_vs_avg || 0;
       const sign = pct >= 0 ? '+' : '';
       return `• ${r.resource}: ${parseFloat(r.current_price).toFixed(4)} (${sign}${pct.toFixed(1)}%)`;
     });
 
-    await sendTelegramAwait(chatId, '💰 <b>Precios Actuales:</b>\n' + lines.join('\n'));
+    await sendTelegramAwait(chatId, '💰 <b>Current Prices:</b>\n' + lines.join('\n'));
   } catch (error) {
     console.error('[priceall] error:', error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
@@ -197,11 +197,11 @@ async function processGraph(chatId, resource) {
     const { getResourceHistory } = require('../services/priceFetcher');
     const { generateChartUrl, calculateStats } = require('../services/chartService');
 
-    // Use all available data (not fixed to 90 days)
-    const history = await getResourceHistory(resource, 365);
+    // Use all available data (up to 90 days)
+    const history = await getResourceHistory(resource, 90);
 
     if (!history || history.length === 0) {
-      await sendTelegramAwait(chatId, `❌ No hay datos para ${resource}.\nEspera a que el cron collecte datos.`);
+      await sendTelegramAwait(chatId, `❌ No data for ${resource}.\nWait for cron to collect data.`);
       return;
     }
 
@@ -210,20 +210,18 @@ async function processGraph(chatId, resource) {
     const emoji = stats.pct >= 0 ? '📈' : '📉';
     const sign = stats.pct >= 0 ? '+' : '';
 
-    // Send stats text first
-    const statsText =
-      `🥕 <b>${resource.toUpperCase()}</b>\n\n` +
-      `💰 Actual: <code>${stats.current.toFixed(6)}</code>\n` +
-      `📊 Mín: ${stats.min.toFixed(6)} | Máx: ${stats.max.toFixed(6)}\n` +
-      `📐 Promedio: ${stats.avg.toFixed(6)}\n` +
-      `${emoji} vs Promedio: ${sign}${stats.pct}%\n\n` +
-      `📈 ${history.length} snapshots`;
+    // Caption with stats
+    const caption =
+      `<b>${resource.toUpperCase()}</b>\n\n` +
+      `💰 Current: <code>${stats.current.toFixed(6)}</code>\n` +
+      `📊 Min: ${stats.min.toFixed(6)} | Max: ${stats.max.toFixed(6)}\n` +
+      `📐 Avg: ${stats.avg.toFixed(6)}\n` +
+      `${emoji} vs Avg: ${sign}${stats.pct}%\n\n` +
+      `📈 Data Points: ${history.length}`;
 
-    // Generate chart URL
+    // Generate and send chart
     const chartUrl = generateChartUrl(resource, history);
-
-    // Send chart as photo
-    await sendPhoto(chatId, chartUrl, statsText);
+    await sendPhoto(chatId, chartUrl, caption);
   } catch (error) {
     console.error('[graph] error:', error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
@@ -235,9 +233,9 @@ async function processDebug(chatId) {
     const { getResourceHistory } = require('../services/priceFetcher');
     const { generateChartUrl } = require('../services/chartService');
 
-    const history = await getResourceHistory('yam', 365);
+    const history = await getResourceHistory('yam', 90);
     const chartUrl = generateChartUrl('yam', history);
-    await sendTelegramAwait(chatId, `🔧 Debug:\nHistory: ${history.length} puntos\nURL: ${chartUrl.length} chars`);
+    await sendTelegramAwait(chatId, `🔧 Debug:\nHistory: ${history.length} points\nURL: ${chartUrl.length} chars`);
   } catch (error) {
     console.error('[debug] error:', error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
@@ -249,7 +247,7 @@ async function processDebug(chatId) {
 // ============================================
 
 router.get('/test', async (req, res) => {
-  const ok = await sendTelegramAwait('1166287745', '🐣 Test desde SFL Watcher API!');
+  const ok = await sendTelegramAwait('1166287745', '🐣 Test from SFL Watcher API!');
   res.json({ ok });
 });
 
