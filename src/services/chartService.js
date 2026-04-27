@@ -4,17 +4,14 @@
  */
 const { createCanvas } = require('@napi-rs/canvas');
 
-/**
- * Generate a PNG chart buffer and return as base64 data URL
- */
 function generateChartDataUrl(resource, history) {
   if (!history || history.length === 0) {
     return null;
   }
 
   const width = 640;
-  const height = 380;
-  const padding = { top: 45, right: 25, bottom: 55, left: 75 };
+  const height = 400;
+  const padding = { top: 50, right: 25, bottom: 65, left: 80 };
 
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d');
@@ -36,47 +33,48 @@ function generateChartDataUrl(resource, history) {
     if (p === maxPrice) maxIdx = i;
   });
 
-  const sampled = sampleDataWithIndices(history, 60);
+  const sampled = sampleDataWithIndices(history, 50);
   const sampledPrices = sampled.map(h => parseFloat(h.price));
+  const n = sampled.length;
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
 
-  // Scale functions
-  const xScale = (i) => padding.left + (i / (sampled.length - 1)) * chartWidth;
+  const xScale = (i) => padding.left + (i / Math.max(n - 1, 1)) * chartWidth;
   const yScale = (p) => padding.top + chartHeight - ((p - minPrice) / priceRange) * chartHeight;
 
   // ---- GRID ----
-  ctx.strokeStyle = '#e8e8e8';
+  ctx.strokeStyle = '#e0e0e0';
   ctx.lineWidth = 1;
-  const numYLabels = 6;
-  for (let i = 0; i <= numYLabels; i++) {
-    const y = yScale(minPrice + (priceRange * i) / numYLabels);
+  const numY = 6;
+  for (let i = 0; i <= numY; i++) {
+    const y = yScale(minPrice + (priceRange * i) / numY);
     ctx.beginPath();
     ctx.moveTo(padding.left, y);
     ctx.lineTo(width - padding.right, y);
     ctx.stroke();
   }
 
-  // ---- Y-AXIS ----
-  ctx.strokeStyle = '#bbbbbb';
+  // ---- Y-AXIS LINE ----
+  ctx.strokeStyle = '#999999';
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(padding.left, padding.top);
   ctx.lineTo(padding.left, height - padding.bottom);
   ctx.stroke();
 
-  ctx.fillStyle = '#555555';
-  ctx.font = '11px Arial';
+  // ---- Y-AXIS LABELS (prices) ----
+  ctx.fillStyle = '#444444';
+  ctx.font = 'bold 11px Arial';
   ctx.textAlign = 'right';
-  for (let i = 0; i <= numYLabels; i++) {
-    const price = minPrice + (priceRange * i) / numYLabels;
+  for (let i = 0; i <= numY; i++) {
+    const price = minPrice + (priceRange * i) / numY;
     const y = yScale(price);
-    ctx.fillText(price.toFixed(4), padding.left - 8, y + 4);
+    ctx.fillText(price.toFixed(4), padding.left - 6, y + 4);
   }
 
   // Y-axis title
   ctx.save();
-  ctx.translate(15, height / 2);
+  ctx.translate(14, height / 2);
   ctx.rotate(-Math.PI / 2);
   ctx.fillStyle = '#555555';
   ctx.font = 'bold 12px Arial';
@@ -84,37 +82,48 @@ function generateChartDataUrl(resource, history) {
   ctx.fillText('PRICE (SFL)', 0, 0);
   ctx.restore();
 
-  // ---- X-AXIS ----
-  ctx.strokeStyle = '#bbbbbb';
+  // ---- X-AXIS LINE ----
+  ctx.strokeStyle = '#999999';
   ctx.beginPath();
   ctx.moveTo(padding.left, height - padding.bottom);
   ctx.lineTo(width - padding.right, height - padding.bottom);
   ctx.stroke();
 
-  // X-axis labels - show timestamps for all points where space allows
-  // We'll show every N labels depending on data density
-  ctx.fillStyle = '#666666';
+  // ---- X-AXIS LABELS (dates) ----
+  ctx.fillStyle = '#555555';
   ctx.font = '10px Arial';
   ctx.textAlign = 'center';
 
-  const maxXLabels = Math.floor(chartWidth / 70); // max ~70px between labels
-  const stepX = Math.max(1, Math.floor(sampled.length / maxXLabels));
-
-  for (let i = 0; i < sampled.length; i += stepX) {
+  // Always show first, middle, last
+  const labelIndices = [0, Math.floor(n / 2), n - 1];
+  labelIndices.forEach(i => {
     const date = new Date(sampled[i].created_at);
     const x = xScale(i);
-    const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][date.getDay()];
-    const label = `${dayName} ${date.getMonth() + 1}/${date.getDate()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+    const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][date.getDay()];
+    const label = `${day} ${date.getMonth() + 1}/${date.getDate()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
     ctx.fillText(label, x, height - padding.bottom + 18);
+  });
+
+  // Also show second and second-to-last if there's room
+  if (n > 4) {
+    const x1 = xScale(1);
+    const d1 = new Date(sampled[1].created_at);
+    const day1 = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d1.getDay()];
+    ctx.fillText(`${day1} ${d1.getMonth() + 1}/${d1.getDate()} ${d1.getHours().toString().padStart(2, '0')}:${d1.getMinutes().toString().padStart(2, '0')}`, x1, height - padding.bottom + 18);
+
+    const x2 = xScale(n - 2);
+    const d2 = new Date(sampled[n - 2].created_at);
+    const day2 = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d2.getDay()];
+    ctx.fillText(`${day2} ${d2.getMonth() + 1}/${d2.getDate()} ${d2.getHours().toString().padStart(2, '0')}:${d2.getMinutes().toString().padStart(2, '0')}`, x2, height - padding.bottom + 18);
   }
 
-  // Last X label
-  const lastDate = new Date(sampled[sampled.length - 1].created_at);
-  const lastDayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][lastDate.getDay()];
-  const lastLabel = `${lastDayName} ${lastDate.getMonth() + 1}/${lastDate.getDate()} ${lastDate.getHours().toString().padStart(2, '0')}:${lastDate.getMinutes().toString().padStart(2, '0')}`;
-  ctx.fillText(lastLabel, xScale(sampled.length - 1), height - padding.bottom + 18);
+  // X-axis title
+  ctx.fillStyle = '#555555';
+  ctx.font = 'bold 12px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText('DATE & TIME', width / 2, height - 8);
 
-  // ---- AVERAGE LINE (dashed red) ----
+  // ---- AVG LINE (dashed) ----
   const avgY = yScale(avgPrice);
   ctx.setLineDash([5, 4]);
   ctx.strokeStyle = '#c62828';
@@ -125,11 +134,10 @@ function generateChartDataUrl(resource, history) {
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // AVG label
   ctx.fillStyle = '#c62828';
   ctx.font = 'bold 10px Arial';
   ctx.textAlign = 'left';
-  ctx.fillText(`AVG: ${avgPrice.toFixed(4)}`, padding.left + 4, avgY - 5);
+  ctx.fillText(`AVG ${avgPrice.toFixed(4)}`, padding.left + 4, avgY - 5);
 
   // ---- PRICE LINE ----
   ctx.strokeStyle = '#2e7d32';
@@ -145,24 +153,24 @@ function generateChartDataUrl(resource, history) {
   });
   ctx.stroke();
 
-  // Area fill under line
-  ctx.fillStyle = 'rgba(46, 125, 50, 0.07)';
+  // Area fill
+  ctx.fillStyle = 'rgba(46, 125, 50, 0.08)';
   ctx.beginPath();
   ctx.moveTo(xScale(0), yScale(sampledPrices[0]));
   sampledPrices.forEach((p, i) => ctx.lineTo(xScale(i), yScale(p)));
-  ctx.lineTo(xScale(sampledPrices.length - 1), height - padding.bottom);
+  ctx.lineTo(xScale(n - 1), height - padding.bottom);
   ctx.lineTo(xScale(0), height - padding.bottom);
   ctx.closePath();
   ctx.fill();
 
-  // ---- MIN POINT (blue triangle down) ----
+  // ---- MIN (blue triangle) ----
   const minX = xScale(minIdx);
   const minY = yScale(minPrice);
   ctx.fillStyle = '#1565c0';
   ctx.beginPath();
-  ctx.moveTo(minX, minY + 9);
-  ctx.lineTo(minX - 7, minY - 4);
-  ctx.lineTo(minX + 7, minY - 4);
+  ctx.moveTo(minX, minY + 10);
+  ctx.lineTo(minX - 7, minY - 5);
+  ctx.lineTo(minX + 7, minY - 5);
   ctx.closePath();
   ctx.fill();
   ctx.font = 'bold 10px Arial';
@@ -170,14 +178,14 @@ function generateChartDataUrl(resource, history) {
   ctx.textAlign = 'center';
   ctx.fillText(`MIN ${minPrice.toFixed(4)}`, minX, minY - 9);
 
-  // ---- MAX POINT (orange triangle up) ----
+  // ---- MAX (orange triangle) ----
   const maxX = xScale(maxIdx);
   const maxY = yScale(maxPrice);
   ctx.fillStyle = '#e65100';
   ctx.beginPath();
-  ctx.moveTo(maxX, maxY - 9);
-  ctx.lineTo(maxX - 7, maxY + 4);
-  ctx.lineTo(maxX + 7, maxY + 4);
+  ctx.moveTo(maxX, maxY - 10);
+  ctx.lineTo(maxX - 7, maxY + 5);
+  ctx.lineTo(maxX + 7, maxY + 5);
   ctx.closePath();
   ctx.fill();
   ctx.font = 'bold 10px Arial';
@@ -185,9 +193,9 @@ function generateChartDataUrl(resource, history) {
   ctx.textAlign = 'center';
   ctx.fillText(`MAX ${maxPrice.toFixed(4)}`, maxX, maxY + 18);
 
-  // ---- CURRENT PRICE DOT (green) ----
-  const lastX = xScale(sampledPrices.length - 1);
-  const lastY = yScale(sampledPrices[sampledPrices.length - 1]);
+  // ---- CURRENT (green dot) ----
+  const lastX = xScale(n - 1);
+  const lastY = yScale(sampledPrices[n - 1]);
   ctx.fillStyle = '#1b5e20';
   ctx.beginPath();
   ctx.arc(lastX, lastY, 5, 0, Math.PI * 2);
@@ -198,26 +206,17 @@ function generateChartDataUrl(resource, history) {
   ctx.font = 'bold 10px Arial';
   ctx.fillStyle = '#1b5e20';
   ctx.textAlign = 'left';
-  ctx.fillText(`NOW: ${sampledPrices[sampledPrices.length - 1].toFixed(4)}`, lastX + 9, lastY + 3);
+  ctx.fillText(`NOW ${sampledPrices[n - 1].toFixed(4)}`, lastX + 9, lastY + 3);
 
   // ---- TITLE ----
   ctx.fillStyle = '#1a1a1a';
-  ctx.font = 'bold 15px Arial';
+  ctx.font = 'bold 16px Arial';
   ctx.textAlign = 'center';
   ctx.fillText(`${resource.toUpperCase()} - Price History`, width / 2, 20);
-
-  // Data points
-  ctx.fillStyle = '#888888';
+  ctx.fillStyle = '#777777';
   ctx.font = '11px Arial';
   ctx.fillText(`${sampledPrices.length} data points`, width / 2, 36);
 
-  // ---- LEGEND (top right) ----
-  ctx.font = '10px Arial';
-  ctx.textAlign = 'right';
-  ctx.fillStyle = '#c62828';
-  ctx.fillText('— AVG', width - 10, 22);
-
-  // Convert to PNG
   const buffer = canvas.toBuffer('image/png');
   return `data:image/png;base64,${buffer.toString('base64')}`;
 }
