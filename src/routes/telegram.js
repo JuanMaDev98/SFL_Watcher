@@ -38,22 +38,49 @@ async function sendTelegramAwait(chatId, text) {
  */
 async function sendPhoto(chatId, photoUrl, caption) {
   try {
-    // photoUrl can be a data URL (data:image/svg+xml;base64,...) or HTTP URL
-    const resp = await fetch(`${TELEGRAM_API}/sendDocument`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        document: photoUrl,
-        caption: caption,
-        parse_mode: 'HTML'
-      })
-    });
-    const data = await resp.json();
-    if (!resp.ok) {
-      console.error('[sendPhoto] Telegram error:', data);
+    // If it's a data URL, convert to Blob for proper upload
+    let body;
+    if (photoUrl.startsWith('data:')) {
+      const mimeMatch = photoUrl.match(/^data:([^;]+);base64,/);
+      const mime = mimeMatch ? mimeMatch[1] : 'image/svg+xml';
+      const base64 = photoUrl.replace(/^data:[^;]+;base64,/, '');
+      const buffer = Buffer.from(base64, 'base64');
+      const blob = new Blob([buffer], { type: mime });
+
+      // Use FormData for file upload
+      const form = new FormData();
+      form.append('chat_id', chatId);
+      form.append('photo', blob, 'chart.png');
+      form.append('caption', caption);
+      form.append('parse_mode', 'HTML');
+
+      const resp = await fetch(`${TELEGRAM_API}/sendPhoto`, {
+        method: 'POST',
+        body: form
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        console.error('[sendPhoto] Telegram error:', data);
+      }
+      return resp.ok;
+    } else {
+      // Regular URL
+      const resp = await fetch(`${TELEGRAM_API}/sendPhoto`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          photo: photoUrl,
+          caption: caption,
+          parse_mode: 'HTML'
+        })
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        console.error('[sendPhoto] Telegram error:', data);
+      }
+      return resp.ok;
     }
-    return resp.ok;
   } catch (e) {
     console.error('[sendPhoto] error:', e.message);
     return false;
@@ -224,8 +251,23 @@ async function processGraph(chatId, resource) {
     const chartUrl = generateChartDataUrl(resource, history);
     const sent = await sendPhoto(chatId, chartUrl, caption);
     if (!sent) {
-      // Fallback: send QuickChart URL
-      await sendTelegramAwait(chatId, `📊 Chart: ${chartUrl.substring(0, 200)}...`);
+      console.error('[graph] sendPhoto failed, attempting sendDocument fallback');
+      // Try sendDocument as fallback
+      const resp = await fetch(`${TELEGRAM_API}/sendDocument`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          document: chartUrl,
+          caption: caption,
+          parse_mode: 'HTML'
+        })
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        console.error('[graph] sendDocument fallback also failed:', data);
+        await sendTelegramAwait(chatId, `❌ Chart failed to generate. Try /price ${resource} for text data.`);
+      }
     }
   } catch (error) {
     console.error('[graph] error:', error.message);
