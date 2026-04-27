@@ -55,17 +55,31 @@ router.post('/webhook', async (req, res) => {
       try {
         const history = await getResourceHistory(resource, 90);
         if (!history || history.length === 0) {
-          await sendTelegramMessage(chatId, `❌ No data for ${resource}. Wait for cron to collect data.`);
+          await sendTelegramMessage(chatId, `❌ No data for ${resource}. Wait for cron.`);
           return res.json({ ok: true });
         }
         
         const chartUrl = generateChartUrl(resource, history);
         
-        // Send as text with URL
-        await sendTelegramMessage(chatId, `📊 ${resource.toUpperCase()} - ${history.length} data points\nChart: ${chartUrl}`);
+        // Send chart URL as text (Telegram will show inline preview)
+        const msg = `📊 ${resource.toUpperCase()}\n${history.length} points\n${chartUrl}`;
+        
+        // Response to Telegram
+        const tgResponse = await fetch(`${TELEGRAM_API}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text: msg })
+        });
+        const tgResult = await tgResponse.json();
+        console.log('[graph] Telegram:', JSON.stringify(tgResult));
+        
       } catch (error) {
         console.error('[graph] Error:', error.message);
-        await sendTelegramMessage(chatId, `Error: ${error.message}`);
+        const tgResponse = await fetch(`${TELEGRAM_API}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text: `Error: ${error.message}` })
+        });
       }
       return res.json({ ok: true });
     }
