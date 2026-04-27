@@ -7,82 +7,28 @@ const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOK
  * POST /api/telegram/webhook
  */
 router.post('/webhook', async (req, res) => {
+  // ALWAYS respond first
+  res.json({ ok: true });
+  
   const { message } = req.body || {};
-  if (!message || !message.text) {
-    return res.json({ ok: true });
-  }
-  
-  const chatId = message.chat.id;
-  const text = message.text.trim();
+  const chatId = message?.chat?.id || '1166287745';
+  const text = message?.text?.trim() || '';
   const parts = text.split(' ');
-  const command = parts[0].toLowerCase();
+  const command = parts[0]?.toLowerCase() || '';
   
-  console.log(`[webhook] ${command} from ${chatId}`);
+  console.log(`[webhook] cmd: ${command}, chatId: ${chatId}`);
   
-  try {
-    if (command === '/start') {
-      console.log('[start] Sending welcome message...');
-      const resp = await fetch(`${TELEGRAM_API}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          chat_id: chatId, 
-          text: '🦉 <b>SFL Watcher</b>\n\n/graph <recurso> - Ver gráfica\n/list - Recursos\n/alerts - Tus alertas', 
-          parse_mode: 'HTML' 
-        })
-      });
-      const result = await resp.json();
-      console.log('[start] Result:', JSON.stringify(result));
-      return res.json({ ok: true });
-    }
-    
-    if (command === '/help') {
-      const resp = await fetch(`${TELEGRAM_API}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          chat_id: chatId, 
-          text: '📊 <b>Comandos:</b>\n/graph <recurso> - Gráfica\n/list - Recursos\n/alerts - Alertas', 
-          parse_mode: 'HTML' 
-        })
-      });
-      return res.json({ ok: true });
-    }
-    
-    if (command === '/list') {
-      const resources = ['sunflower','potato','pumpkin','carrot','cabbage','beetroot','cauliflower','parsnip','radish','wheat','kale','apple','blueberry','orange','eggplant','corn','banana','soybean','grape','rice','olive','tomato','lemon','barley','rhubarb','zucchini','yam','broccoli','pepper','onion','turnip','artichoke'];
-      const resp = await fetch(`${TELEGRAM_API}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          chat_id: chatId, 
-          text: '📋 <b>Recursos:</b>\n' + resources.join(', '), 
-          parse_mode: 'HTML' 
-        })
-      });
-      return res.json({ ok: true });
-    }
-    
-    // Commands that need DB - use a separate endpoint pattern
-    if (command === '/debug' || command === '/graph' || command === '/graph@sflwatcher_bot') {
-      // Redirect to a background handler via separate API call
-      // This allows Vercel to complete the webhook response quickly
-      const resource = command.startsWith('/graph') ? (parts[1] || 'yam') : 'yam';
-      
-      // Fire and forget to background endpoint
-      const bgUrl = `${process.env.APP_URL || 'https://sfl-watcher.vercel.app'}/api/telegram/process?chatId=${chatId}&cmd=${command}&resource=${resource}`;
-      fetch(bgUrl).catch(e => console.error('[bg] error:', e.message));
-      
-      return res.json({ ok: true });
-    }
-    
-    return res.json({ ok: true });
-    
-  } catch (error) {
-    console.error('[webhook] Error:', error.message);
-    return res.json({ ok: true });
-  }
-});
+  // Send a test message to confirm webhook is working
+  fetch(`${TELEGRAM_API}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 
+      chat_id: '1166287745', 
+      text: `🔔 Webhook received: ${command || '(no command)'}
+ChatID: ${chatId}`, 
+      parse_mode: 'HTML' 
+    })
+  }).catch(e => console.error('[webhook test] Error:', e.message));
 
 /**
  * GET /api/telegram/process
