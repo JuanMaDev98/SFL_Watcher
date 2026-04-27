@@ -223,7 +223,7 @@ async function processAllPrices(chatId) {
 async function processGraph(chatId, resource) {
   try {
     const { getResourceHistory } = require('../services/priceFetcher');
-    const { generateChartDataUrl, calculateStats } = require('../services/chartService');
+    const { generateChartDataUrl, generateChartBuffer, calculateStats } = require('../services/chartService');
 
     // Use all available data (up to 90 days)
     const history = await getResourceHistory(resource, 90);
