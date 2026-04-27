@@ -33,6 +33,32 @@ async function sendTelegramAwait(chatId, text) {
   }
 }
 
+/**
+ * Send photo with caption using sendPhoto API
+ */
+async function sendPhoto(chatId, photoUrl, caption) {
+  try {
+    const resp = await fetch(`${TELEGRAM_API}/sendPhoto`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        photo: photoUrl,
+        caption: caption,
+        parse_mode: 'HTML'
+      })
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      console.error('[sendPhoto] Telegram error:', data);
+    }
+    return resp.ok;
+  } catch (e) {
+    console.error('[sendPhoto] error:', e.message);
+    return false;
+  }
+}
+
 // ============================================
 // WEBHOOK HANDLER
 // ============================================
@@ -169,8 +195,9 @@ async function processAllPrices(chatId) {
 async function processGraph(chatId, resource) {
   try {
     const { getResourceHistory } = require('../services/priceFetcher');
-    const { generateChartUrl } = require('../services/chartService');
+    const { generateChartUrl, calculateStats } = require('../services/chartService');
 
+    // Use all available data (not fixed to 90 days)
     const history = await getResourceHistory(resource, 365);
 
     if (!history || history.length === 0) {
@@ -178,8 +205,25 @@ async function processGraph(chatId, resource) {
       return;
     }
 
+    // Calculate stats
+    const stats = calculateStats(history);
+    const emoji = stats.pct >= 0 ? '📈' : '📉';
+    const sign = stats.pct >= 0 ? '+' : '';
+
+    // Send stats text first
+    const statsText =
+      `🥕 <b>${resource.toUpperCase()}</b>\n\n` +
+      `💰 Actual: <code>${stats.current.toFixed(6)}</code>\n` +
+      `📊 Mín: ${stats.min.toFixed(6)} | Máx: ${stats.max.toFixed(6)}\n` +
+      `📐 Promedio: ${stats.avg.toFixed(6)}\n` +
+      `${emoji} vs Promedio: ${sign}${stats.pct}%\n\n` +
+      `📈 ${history.length} snapshots`;
+
+    // Generate chart URL
     const chartUrl = generateChartUrl(resource, history);
-    await sendTelegramAwait(chatId, `📊 ${resource.toUpperCase()}\n${history.length} puntos\n\n${chartUrl}`);
+
+    // Send chart as photo
+    await sendPhoto(chatId, chartUrl, statsText);
   } catch (error) {
     console.error('[graph] error:', error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
