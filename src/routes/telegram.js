@@ -45,12 +45,11 @@ router.post('/webhook', async (req, res) => {
 
     // Command: /graph <resource>
     if (parts[0] === '/graph' || parts[0] === '/graph@sflwatcher_bot') {
-      if (parts.length < 2) {
+      const resource = parts.length > 1 ? parts[1].toLowerCase() : null;
+      if (!resource) {
         await sendTelegramMessage(chatId, '❌ Usage: /graph <resource>\nExample: /graph yam');
         return res.json({ ok: true });
       }
-
-      const resource = parts[1].toLowerCase();
       
       try {
         const history = await getResourceHistory(resource, 90);
@@ -60,26 +59,35 @@ router.post('/webhook', async (req, res) => {
         }
         
         const chartUrl = generateChartUrl(resource, history);
-        
-        // Send chart URL as text (Telegram will show inline preview)
         const msg = `📊 ${resource.toUpperCase()}\n${history.length} points\n${chartUrl}`;
         
-        // Response to Telegram
         const tgResponse = await fetch(`${TELEGRAM_API}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ chat_id: chatId, text: msg })
         });
         const tgResult = await tgResponse.json();
-        console.log('[graph] Telegram:', JSON.stringify(tgResult));
+        console.log('[graph] Result:', JSON.stringify(tgResult));
         
       } catch (error) {
         console.error('[graph] Error:', error.message);
-        const tgResponse = await fetch(`${TELEGRAM_API}/sendMessage`, {
+        await fetch(`${TELEGRAM_API}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ chat_id: chatId, text: `Error: ${error.message}` })
         });
+      }
+      return res.json({ ok: true });
+    }
+
+    // Command: /debug
+    if (parts[0] === '/debug') {
+      try {
+        const history = await getResourceHistory('yam', 90);
+        const chartUrl = generateChartUrl('yam', history);
+        await sendTelegramMessage(chatId, `Debug: ${history.length} pts, URL: ${chartUrl.length} chars`);
+      } catch (error) {
+        await sendTelegramMessage(chatId, `Error: ${error.message}`);
       }
       return res.json({ ok: true });
     }
