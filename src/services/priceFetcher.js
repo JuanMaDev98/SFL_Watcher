@@ -103,11 +103,13 @@ async function getAllPrices() {
  * Get price history for a resource (last 30 days)
  */
 async function getResourceHistory(resource, days = 30) {
+  const cutoffDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  
   const { data, error } = await supabase
     .from('price_snapshots')
     .select('price, created_at')
     .eq('resource', resource)
-    .gte('created_at', `NOW() - INTERVAL '${days} days'`)
+    .gte('created_at', cutoffDate)
     .order('created_at', { ascending: true });
 
   if (error) throw error;

@@ -80,8 +80,8 @@ async function handleGraphCommand(chatId, resource) {
     await sendTelegramPhoto(chatId, chartUrl, `📈 ${resource.toUpperCase()} - 90 días`);
 
   } catch (error) {
-    console.error('Graph command error:', error);
-    await sendTelegramMessage(chatId, '❌ Error al generar la gráfica. Intenta de nuevo.');
+    console.error('Graph command error:', error.message);
+    await sendTelegramMessage(chatId, `❌ Error: ${error.message}`);
   }
 }
 
@@ -109,12 +109,17 @@ async function sendTelegramMessage(chatId, text) {
  */
 async function sendTelegramPhoto(chatId, photoUrl, caption) {
   try {
+    // Download image first (Telegram URL limit is 1024 chars)
+    const response = await fetch(photoUrl);
+    const buffer = await response.arrayBuffer();
+    const base64 = Buffer.from(buffer).toString('base64');
+    
     await fetch(`${TELEGRAM_API}/sendPhoto`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId,
-        photo: photoUrl,
+        photo: `data:image/png;base64,${base64}`,
         caption: caption
       })
     });
