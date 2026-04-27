@@ -27,6 +27,34 @@ router.get('/test', async (req, res) => {
   }
 });
 
+// Debug test with DB
+router.get('/testdb', async (req, res) => {
+  const chatId = '1166287745';
+  try {
+    console.log('[TESTDB] Step 1: Fetch history');
+    const { getResourceHistory } = require('../services/priceFetcher');
+    const history = await getResourceHistory('yam', 90);
+    console.log('[TESTDB] History count:', history.length);
+    
+    console.log('[TESTDB] Step 2: Send to Telegram');
+    const response = await fetch(`${TELEGRAM_API}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: `DB Test: ${history.length} history points found`
+      })
+    });
+    const result = await response.json();
+    console.log('[TESTDB] Telegram result:', JSON.stringify(result));
+    
+    res.json({ success: true, historyLength: history.length, telegram: result });
+  } catch (error) {
+    console.error('[TESTDB] Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 /**
  * Handle incoming Telegram updates (webhook)
  * POST /api/telegram/webhook
