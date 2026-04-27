@@ -5,272 +5,126 @@ const { generateChartUrl } = require('../services/chartService');
 
 const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
 
-// Debug test endpoint
-router.get('/test', async (req, res) => {
-  const chatId = '1166287745';
-  try {
-    console.log('[TEST] Sending test message...');
-    const response = await fetch(`${TELEGRAM_API}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: '🐣 Test from SFL Watcher API!'
-      })
-    });
-    const result = await response.json();
-    console.log('[TEST] Result:', JSON.stringify(result));
-    res.json(result);
-  } catch (error) {
-    console.error('[TEST] Error:', error.message);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Debug test with DB
-router.get('/testdb', async (req, res) => {
-  const chatId = '1166287745';
-  try {
-    console.log('[TESTDB] Step 1: Fetch history');
-    const { getResourceHistory } = require('../services/priceFetcher');
-    const history = await getResourceHistory('yam', 90);
-    console.log('[TESTDB] History count:', history.length);
-    
-    console.log('[TESTDB] Step 2: Send to Telegram');
-    const response = await fetch(`${TELEGRAM_API}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: `DB Test: ${history.length} history points found`
-      })
-    });
-    const result = await response.json();
-    console.log('[TESTDB] Telegram result:', JSON.stringify(result));
-    
-    res.json({ success: true, historyLength: history.length, telegram: result });
-  } catch (error) {
-    console.error('[TESTDB] Error:', error.message);
-    res.status(500).json({ error: error.message });
-  }
-});
-
 /**
- * Handle incoming Telegram updates (webhook)
  * POST /api/telegram/webhook
+ * Receives Telegram updates - responds quickly to avoid timeout
  */
 router.post('/webhook', async (req, res) => {
+  // Respond immediately to Telegram
+  res.json({ ok: true });
+  
   try {
     const { message } = req.body;
-
-    if (!message || !message.text) {
-      return res.json({ ok: true });
-    }
-
+    if (!message || !message.text) return;
+    
     const chatId = message.chat.id;
     const text = message.text.trim();
     const parts = text.split(' ');
-
-    // Command: /graph <resource>
-    if (parts[0] === '/graph' || parts[0] === '/graph@sflwatcher_bot') {
+    const command = parts[0].toLowerCase();
+    
+    console.log(`[Webhook] Command: ${command} from ${chatId}`);
+    
+    // Handle commands asynchronously
+    if (command === '/graph' || command === '/graph@sflwatcher_bot') {
       const resource = parts.length > 1 ? parts[1].toLowerCase() : null;
-      if (!resource) {
-        await sendTelegramMessage(chatId, '❌ Usage: /graph <resource>\nExample: /graph yam');
-        return res.json({ ok: true });
+      if (resource) {
+        // Process in background - don't await
+        processGraph(chatId, resource).catch(e => console.error('[graph] Error:', e.message));
       }
-      
-      try {
-        const history = await getResourceHistory(resource, 90);
-        if (!history || history.length === 0) {
-          await sendTelegramMessage(chatId, `❌ No data for ${resource}. Wait for cron.`);
-          return res.json({ ok: true });
-        }
-        
-        const chartUrl = generateChartUrl(resource, history);
-        const msg = `📊 ${resource.toUpperCase()}\n${history.length} points\n${chartUrl}`;
-        
-        const tgResponse = await fetch(`${TELEGRAM_API}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: chatId, text: msg })
-        });
-        const tgResult = await tgResponse.json();
-        console.log('[graph] Result:', JSON.stringify(tgResult));
-        
-      } catch (error) {
-        console.error('[graph] Error:', error.message);
-        await fetch(`${TELEGRAM_API}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: chatId, text: `Error: ${error.message}` })
-        });
-      }
-      return res.json({ ok: true });
-    }
-
-    // Command: /debug
-    if (parts[0] === '/debug') {
-      try {
-        const history = await getResourceHistory('yam', 90);
-        const chartUrl = generateChartUrl('yam', history);
-        await sendTelegramMessage(chatId, `Debug: ${history.length} pts, URL: ${chartUrl.length} chars`);
-      } catch (error) {
-        await sendTelegramMessage(chatId, `Error: ${error.message}`);
-      }
-      return res.json({ ok: true });
-    }
-
-    // Command: /start
-    if (parts[0] === '/start') {
-      await sendTelegramMessage(chatId, '🦉 <b>SFL Watcher</b>\n\nMonitorea precios de Sunflower Land.\n\nComandos:\n/graph <recurso> - Ver gráfica de precio\n/alerts - Ver tus alertas activas\n/help - Ayuda\n\nEjemplo: /graph broccoli');
-      return res.json({ ok: true });
-    }
-
-    // Command: /help
-    if (parts[0] === '/help') {
-      await sendTelegramMessage(chatId, '📊 <b>SFL Watcher - Comandos</b>\n\n/graph <recurso> - Gráfica de precio (90 días)\n/list - Recursos disponibles\n/alerts - Ver alertas\n\nEjemplo: /graph yam');
-      return res.json({ ok: true });
-    }
-
-    // Command: /list
-    if (parts[0] === '/list') {
+    } else if (command === '/start') {
+      sendMessage(chatId, '🦉 <b>SFL Watcher</b>\n\n/graph <recurso> - Ver gráfica\n/list - Recursos\n/alerts - Tus alertas').catch(e => console.error('[start] Error:', e.message));
+    } else if (command === '/help') {
+      sendMessage(chatId, '📊 <b>Comandos:</b>\n/graph <recurso> - Gráfica\n/list - Recursos\n/alerts - Alertas').catch(e => console.error('[help] Error:', e.message));
+    } else if (command === '/list') {
       const resources = ['sunflower','potato','pumpkin','carrot','cabbage','beetroot','cauliflower','parsnip','radish','wheat','kale','apple','blueberry','orange','eggplant','corn','banana','soybean','grape','rice','olive','tomato','lemon','barley','rhubarb','zucchini','yam','broccoli','pepper','onion','turnip','artichoke'];
-      await sendTelegramMessage(chatId, '📋 <b>Recursos disponibles:</b>\n\n' + resources.join(', '));
-      return res.json({ ok: true });
+      sendMessage(chatId, '📋 <b>Recursos:</b>\n' + resources.join(', ')).catch(e => console.error('[list] Error:', e.message));
+    } else if (command === '/debug') {
+      processDebug(chatId).catch(e => console.error('[debug] Error:', e.message));
     }
-
-    res.json({ ok: true });
-
   } catch (error) {
-    console.error('Telegram webhook error:', error);
-    res.status(500).json({ error: 'Webhook error' });
+    console.error('[Webhook] Error:', error.message);
   }
 });
 
 /**
- * Handle /graph command
+ * Process /graph command
  */
-async function handleGraphCommand(chatId, resource) {
-  console.log(`[handleGraphCommand] Called with resource=${resource}, chatId=${chatId}`);
-  
-  try {
-    // Get price history (90 days)
-    console.log(`[handleGraphCommand] Fetching history for ${resource}...`);
-    const history = await getResourceHistory(resource, 90);
-    console.log(`[handleGraphCommand] History count: ${history?.length || 0}`);
-
-    if (!history || history.length === 0) {
-      console.log(`[handleGraphCommand] No data for ${resource}`);
-      await sendTelegramMessage(chatId, `❌ No hay datos para <b>${resource}</b>. Intenta de nuevo en unos minutos cuando el cron haya colectado datos.`);
-      return;
-    }
-
-    // Generate chart URL
-    console.log(`[handleGraphCommand] Generating chart...`);
-    const chartUrl = generateChartUrl(resource, history);
-    console.log(`[handleGraphCommand] Chart URL length: ${chartUrl?.length || 'undefined'}`);
-
-    // Send chart image
-    console.log(`[handleGraphCommand] Sending photo...`);
-    await sendTelegramPhoto(chatId, chartUrl, `📈 ${resource.toUpperCase()} - 90 días`);
-    console.log(`[handleGraphCommand] Done!`);
-
-  } catch (error) {
-    console.error('[handleGraphCommand] Error:', error.message);
-    await sendTelegramMessage(chatId, `❌ Error: ${error.message}`);
-  }
-}
-
-/**
- * DEBUG: Send text message in graph handler
- */
-async function handleGraphCommandText(chatId, resource) {
+async function processGraph(chatId, resource) {
   try {
     const history = await getResourceHistory(resource, 90);
+    
     if (!history || history.length === 0) {
-      await sendTelegramMessage(chatId, `No data for ${resource}`);
+      await sendMessage(chatId, `❌ No hay datos para ${resource}. Espera a que el cron collecte datos.`);
       return;
     }
     
     const chartUrl = generateChartUrl(resource, history);
     
-    // Send as text message with URL instead of photo
-    await sendTelegramMessage(chatId, `📊 ${resource.toUpperCase()}\nHistory: ${history.length} points\nChart: ${chartUrl}`);
-  } catch (error) {
-    console.error('[handleGraphCommandText] Error:', error.message);
-    await sendTelegramMessage(chatId, `Error: ${error.message}`);
-  }
-}
-
-/**
- * Send text message via Telegram
- */
-async function sendTelegramMessage(chatId, text) {
-  try {
-    await fetch(`${TELEGRAM_API}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: 'HTML'
-      })
-    });
-  } catch (error) {
-    console.error('Telegram send error:', error.message);
-  }
-}
-
-/**
- * Send photo via Telegram (chart image)
- */
-async function sendTelegramPhoto(chatId, photoUrl, caption) {
-  console.log(`[sendTelegramPhoto] URL length: ${photoUrl.length}`);
-  
-  try {
-    // Send photo using URL (QuickChart is public, Telegram should fetch it)
-    const response = await fetch(`${TELEGRAM_API}/sendPhoto`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        photo: photoUrl,
-        caption: caption
-      })
-    });
+    // Send URL as text message (Telegram will make it clickable)
+    await sendMessage(chatId, `📊 ${resource.toUpperCase()}\n${history.length} puntos\n\n${chartUrl}`);
     
+  } catch (error) {
+    console.error('[processGraph] Error:', error.message);
+    await sendMessage(chatId, `Error: ${error.message}`);
+  }
+}
+
+/**
+ * Process /debug command
+ */
+async function processDebug(chatId) {
+  try {
+    const history = await getResourceHistory('yam', 90);
+    const chartUrl = generateChartUrl('yam', history);
+    await sendMessage(chatId, `Debug: ${history.length} pts, URL: ${chartUrl.length} chars`);
+  } catch (error) {
+    await sendMessage(chatId, `Error: ${error.message}`);
+  }
+}
+
+/**
+ * Send message to Telegram
+ */
+async function sendMessage(chatId, text) {
+  try {
+    const response = await fetch(`${TELEGRAM_API}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' })
+    });
     const result = await response.json();
-    console.log(`[sendTelegramPhoto] Result: ok=${result.ok}`);
-    
-    if (!result.ok) {
-      console.error('[sendTelegramPhoto] Error:', result.description);
-      // Fallback: send chart URL as text
-      await sendTelegramMessage(chatId, `📈 ${caption}\n
-Chart: ${photoUrl}`);
-    }
+    console.log('[sendMessage] Result:', result.ok);
+    return result;
   } catch (error) {
-    console.error('[sendTelegramPhoto] Error:', error.message);
-    await sendTelegramMessage(chatId, `📊 Chart: ${photoUrl}`);
+    console.error('[sendMessage] Error:', error.message);
+    throw error;
   }
 }
 
 /**
- * Set webhook URL (call once to configure)
- * GET /api/telegram/setwebhook
+ * GET /api/telegram/test - Test endpoint
+ */
+router.get('/test', async (req, res) => {
+  try {
+    await sendMessage('1166287745', '🐣 Test desde SFL Watcher API!');
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/telegram/setwebhook - Configure webhook
  */
 router.get('/setwebhook', async (req, res) => {
-  const webhookUrl = process.env.TELEGRAM_WEBHOOK_URL || `${process.env.APP_URL}/api/telegram/webhook`;
-
+  const webhookUrl = `${process.env.APP_URL || 'https://sfl-watcher.vercel.app'}/api/telegram/webhook`;
+  
   try {
     const response = await fetch(`${TELEGRAM_API}/setWebhook`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        url: webhookUrl,
-        allowed_updates: ['message']
-      })
+      body: JSON.stringify({ url: webhookUrl, allowed_updates: ['message'] })
     });
-
     const data = await response.json();
     res.json(data);
   } catch (error) {
