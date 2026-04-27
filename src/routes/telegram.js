@@ -110,16 +110,24 @@ router.post('/webhook', async (req, res) => {
       '/price &lt;resource&gt; - Current price\n' +
       '/priceall - All prices\n' +
       '/graph &lt;resource&gt; - Chart\n' +
+      '/alerts - Your alerts\n' +
+      '/alert &lt;resource&gt; &lt;high%&gt; &lt;low%&gt; - Set alert\n' +
+      '/removealert &lt;resource&gt; - Remove alert\n' +
       '/list - Resource list'
     );
   }
   else if (command === '/help') {
     await sendTelegramAwait(chatId,
-      '📊 <b>Commands:</b>\n' +
-      '/price &lt;resource&gt; - Current price\n' +
+      '📊 <b>Commands:</b>\n\n' +
+      '<b>Price Info:</b>\n' +
+      '/price &lt;resource&gt; - Price info\n' +
       '/priceall - All prices\n' +
       '/graph &lt;resource&gt; - Chart\n' +
-      '/list - Resource list'
+      '/list - Resources\n\n' +
+      '<b>Alerts:</b>\n' +
+      '/alerts - View your alerts\n' +
+      '/alert &lt;resource&gt; &lt;high%&gt; &lt;low%&gt; - Create/update\n' +
+      '/removealert &lt;resource&gt; - Remove'
     );
   }
   else if (command === '/list') {
@@ -149,6 +157,14 @@ router.post('/webhook', async (req, res) => {
   }
   else if (command === '/debug') {
     await processDebug(chatId);
+  }
+  else if (command === '/alert' || command === '/alerts') {
+    const rest = parts.slice(1).join(' ');
+    await processAlertConfig(chatId, rest, parts[0] === '/alerts');
+  }
+  else if (command === '/removealert') {
+    const resource = parts.length > 1 ? parts[1].toLowerCase() : null;
+    await processRemoveAlert(chatId, resource);
   }
   else {
     await sendTelegramAwait(chatId, '❌ Unknown command.\nUse /help to see commands.');
@@ -288,6 +304,152 @@ async function processDebug(chatId) {
     await sendTelegramAwait(chatId, `🔧 Debug:\nHistory: ${history.length} points\nURL: ${chartUrl.length} chars`);
   } catch (error) {
     console.error('[debug] error:', error.message);
+    await sendTelegramAwait(chatId, `Error: ${error.message}`);
+  }
+}
+
+async function processAlertConfig(chatId, input, isListMode) {
+  const supabase = require('../lib/supabase');
+
+  try {
+    // List user's alerts
+    if (isListMode || !input.trim()) {
+      const { data: alerts, error } = await supabase
+        .from('user_alerts')
+        .select('*')
+        .eq('user_id', chatId)
+        .eq('enabled', true)
+        .order('resource');
+
+      if (error) throw error;
+
+      if (!alerts || alerts.length === 0) {
+        await sendTelegramAwait(chatId,
+          '🔔 <b>Your Alerts</b>\n\nNo alerts configured.\n' +
+          'Use /alert &lt;resource&gt; &lt;high%&gt; &lt;low%&gt; to create one.\n' +
+          'Example: /alert yam +10 -15'
+        );
+        return;
+      }
+
+      const lines = alerts.map(a => {
+        const pctSign = a.threshold_high >= 0 ? '+' : '';
+        const lowSign = a.threshold_low >= 0 ? '+' : '';
+        return `• <b>${a.resource}</b>: ▲${pctSign}${a.threshold_high}% | ▼${lowSign}${a.threshold_low}%`;
+      });
+
+      await sendTelegramAwait(chatId,
+        '🔔 <b>Your Alerts</b>\n\n' + lines.join('\n') + '\n\n' +
+        'To add/modify: /alert &lt;resource&gt; &lt;high%&gt; &lt;low%&gt;\n' +
+        'To remove: /removealert &lt;resource&gt;'
+      );
+      return;
+    }
+
+    // Parse: /alert yam +10 -15
+    const tokens = input.trim().split(/\s+/);
+    if (tokens.length < 3) {
+      await sendTelegramAwait(chatId,
+        '❌ Usage: /alert &lt;resource&gt; &lt;high%&gt; &lt;low%&gt;\n' +
+        'Example: /alert yam +10 -15\n' +
+        '(alerts when yam is +10% above avg OR -15% below avg)'
+      );
+      return;
+    }
+
+    const resource = tokens[0].toLowerCase();
+    const rawHigh = parseFloat(tokens[1]);
+    const rawLow = parseFloat(tokens[2]);
+
+    if (isNaN(rawHigh) || isNaN(rawLow)) {
+      await sendTelegramAwait(chatId, '❌ High and low must be numbers.\nExample: /alert yam +10 -15');
+      return;
+    }
+
+    // High should be positive (price above avg), low should be negative (price below avg)
+    const thresholdHigh = Math.abs(rawHigh);  // Always store positive
+    const thresholdLow = -Math.abs(rawLow);   // Always store negative
+
+    // Check if alert exists for this user+resource
+    const { data: existing } = await supabase
+      .from('user_alerts')
+      .select('*')
+      .eq('user_id', chatId)
+      .eq('resource', resource)
+      .eq('enabled', true)
+      .single();
+
+    let updated;
+    if (existing) {
+      // Update
+      const { error } = await supabase
+        .from('user_alerts')
+        .update({
+          alert_type: 'dual',
+          threshold_high: thresholdHigh,
+          threshold_low: thresholdLow,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existing.id);
+
+      if (error) throw error;
+      updated = true;
+    } else {
+      // Insert
+      const { error } = await supabase
+        .from('user_alerts')
+        .insert({
+          user_id: chatId,
+          resource,
+          alert_type: 'dual',
+          threshold_high: thresholdHigh,
+          threshold_low: thresholdLow,
+          enabled: true
+        });
+
+      if (error) throw error;
+      updated = false;
+    }
+
+    const highSign = thresholdHigh >= 0 ? '+' : '';
+    const lowSign = thresholdLow >= 0 ? '+' : '';
+    const action = updated ? 'Updated' : 'Created';
+
+    await sendTelegramAwait(chatId,
+      `✅ ${action} alert for <b>${resource}</b>\n` +
+      `▲ High threshold: ${highSign}${thresholdHigh}%\n` +
+      `▼ Low threshold: ${lowSign}${thresholdLow}%\n\n` +
+      `You'll be notified when price crosses these thresholds.`
+    );
+
+  } catch (error) {
+    console.error('[alert] error:', error.message);
+    await sendTelegramAwait(chatId, `Error: ${error.message}`);
+  }
+}
+
+async function processRemoveAlert(chatId, resource) {
+  const supabase = require('../lib/supabase');
+
+  try {
+    if (!resource) {
+      await sendTelegramAwait(chatId, '❌ Usage: /removealert &lt;resource&gt;\nExample: /removealert yam');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('user_alerts')
+      .update({ enabled: false, updated_at: new Date().toISOString() })
+      .eq('user_id', chatId)
+      .eq('resource', resource.toLowerCase())
+      .eq('enabled', true);
+
+    if (error) throw error;
+
+    await sendTelegramAwait(chatId, `🗑️ Alert for <b>${resource}</b> removed.`);
+
+  } catch (error) {
+    console.error('[removealert] error:', error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
   }
 }
