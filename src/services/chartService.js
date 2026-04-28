@@ -25,7 +25,7 @@ function generateChartDataUrl(resource, history) {
   const minIdx = prices.indexOf(minPrice);
   const maxIdx = prices.indexOf(maxPrice);
 
-  // Build chart config with MIN/MAX triangle markers
+  // Build chart config with MIN/MAX arrow markers
   const chartConfig = {
     type: 'line',
     data: {
@@ -37,15 +37,10 @@ function generateChartDataUrl(resource, history) {
         backgroundColor: 'rgba(46, 125, 50, 0.1)',
         fill: true,
         tension: 0.3,
-        pointRadius: 3,
-        pointBackgroundColor: prices.map((p, i) => {
-          if (i === minIdx) return '#1565c0';
-          if (i === maxIdx) return '#e65100';
-          if (i === prices.length - 1) return '#1b5e20';
-          return '#2e7d32';
-        }),
+        pointRadius: 2,
+        pointBackgroundColor: '#2e7d32',
         pointBorderColor: '#ffffff',
-        pointBorderWidth: 1.5
+        pointBorderWidth: 1
       }, {
         // AVG line dataset
         label: 'AVG',
@@ -57,25 +52,26 @@ function generateChartDataUrl(resource, history) {
         tension: 0,
         pointRadius: 0
       }, {
-        // MIN marker - triangle down
+        // MIN marker - triangle pointing down (↓)
         label: 'MIN',
-        data: prices.map((p, i) => i === minIdx ? p : null),
-        borderColor: '#1565c0',
-        backgroundColor: '#1565c0',
-        pointRadius: 0,
+        data: prices.map((p, i) => i === minIdx ? minPrice : null),
+        borderColor: '#0d47a1',
+        backgroundColor: '#2196f3',
+        pointRadius: 10,
         pointStyle: 'triangle',
         showLine: false,
-        fill: false
+        fill: true
       }, {
-        // MAX marker - triangle up  
+        // MAX marker - triangle pointing up (↑)
         label: 'MAX',
-        data: prices.map((p, i) => i === maxIdx ? p : null),
-        borderColor: '#e65100',
-        backgroundColor: '#e65100',
-        pointRadius: 0,
+        data: prices.map((p, i) => i === maxIdx ? maxPrice : null),
+        borderColor: '#bf360c',
+        backgroundColor: '#ff5722',
+        pointRadius: 10,
         pointStyle: 'triangle',
+        rotation: 180, // Rotate 180° to point upward
         showLine: false,
-        fill: false
+        fill: true
       }]
     },
     options: {
