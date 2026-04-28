@@ -139,10 +139,21 @@ async function checkResourceAlerts(resource, alerts) {
         }
 
         // Update last_notified based on direction
+        // Reset opposite cooldown so price can cross both ways within 12h window
         const updateField = isRiseAlert ? 'last_notified_rise_at' : 'last_notified_fall_at';
+        const updates = { [updateField]: now.toISOString() };
+        
+        if (isFallAlert) {
+          // Reset rise cooldown so next rise can notify
+          updates.last_notified_rise_at = null;
+        } else if (isRiseAlert) {
+          // Reset fall cooldown so next fall can notify
+          updates.last_notified_fall_at = null;
+        }
+        
         await supabase
           .from('user_alerts')
-          .update({ [updateField]: now.toISOString() })
+          .update(updates)
           .eq('id', alert.id);
 
       } else {
