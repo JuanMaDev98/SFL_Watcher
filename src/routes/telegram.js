@@ -485,37 +485,34 @@ async function processSetAllAlerts(chatId, input) {
     const tokens = input.trim().split(/\s+/);
     if (tokens.length < 2) {
       await sendTelegramAwait(chatId,
-        '❌ Usage: /setall &lt;high%&gt; &lt;low%&gt;\n' +
+        '❌ Usage: /setall &lt;high%&gt; &lt;low%&gt; [keep]\n' +
         'Example: /setall +20 -15\n' +
         '→ Set alerts for ALL resources when +20% above avg OR -15% below avg\n\n' +
-        'This will create/update alerts for ALL 60 resources.'
+        'Add "keep" at the end to preserve existing alerts:\n' +
+        '/setall +20 -15 keep\n' +
+        '→ Same as above, but skips resources that already have alerts.'
       );
       return;
     }
 
     const thresholdHigh = parseFloat(tokens[0].replace(',', '.'));
     const thresholdLow = parseFloat(tokens[1].replace(',', '.'));
+    const keepExisting = tokens[2]?.toLowerCase() === 'keep';
 
     if (isNaN(thresholdHigh) || isNaN(thresholdLow)) {
       await sendTelegramAwait(chatId, '❌ Invalid percentages. Use numbers like +20 or -15');
       return;
     }
 
-    // Get all available resources
-    const { data: resources, error: rError } = await supabase
-      .from('price_snapshots')
-      .select('resource')
-      .order('resource')
-      .limit(60);
+    // Use hardcoded list of all 60 resources
+    const allResources = ['apple','artichoke','banana','barley','beetroot','blueberry','broccoli','bumpkin emblem','cabbage','carrot','cauliflower','celestine','chewed bone','corn','crimstone','dewberry','duskberry','egg','eggplant','feather','frost pebble','goblin emblem','gold','grape','heart leaf','honey','iron','kale','leather','lemon','lunara','merino wool','milk','moonfur','nightshade emblem','obsidian','olive','onion','orange','parsnip','pepper','potato','pumpkin','radish','rhubarb','ribbon','rice','ruffroot','soybean','stone','sunflorian emblem','sunflower','tomato','turnip','wheat','wild grass','wood','wool','yam','zucchini'];
 
-    if (rError) throw rError;
-
-    const uniqueResources = [...new Set(resources.map(r => r.resource))];
     const now = new Date().toISOString();
     let created = 0;
+    let skipped = 0;
     let updated = 0;
 
-    for (const resource of uniqueResources) {
+    for (const resource of allResources) {
       // Check if alert exists
       const { data: existing } = await supabase
         .from('user_alerts')
@@ -526,6 +523,10 @@ async function processSetAllAlerts(chatId, input) {
         .single();
 
       if (existing) {
+        if (keepExisting) {
+          skipped++;
+          continue;
+        }
         // Update existing
         await supabase
           .from('user_alerts')
@@ -556,14 +557,18 @@ async function processSetAllAlerts(chatId, input) {
 
     const highSign = thresholdHigh >= 0 ? '+' : '';
     const lowSign = thresholdLow >= 0 ? '+' : '';
-    await sendTelegramAwait(chatId,
-      `✅ <b>Mass Alerts Set</b>\n\n` +
-      `Resources: <b>${uniqueResources.length}</b>\n` +
-      `Created: <b>${created}</b> new alerts\n` +
-      `Updated: <b>${updated}</b> existing alerts\n\n` +
-      `Thresholds: ▲ ${highSign}${thresholdHigh}% | ▼ ${lowSign}${thresholdLow}%\n\n` +
-      `Use /alerts to view your alerts or /removealert &lt;resource&gt; to remove one.`
-    );
+    let response = '✅ <b>Mass Alerts Set</b>\n\n';
+    response += `Resources: <b>${allResources.length}</b>\n`;
+    response += `Created: <b>${created}</b> new alerts\n`;
+    if (keepExisting) {
+      response += `Skipped: <b>${skipped}</b> (existing)\n`;
+    } else {
+      response += `Updated: <b>${updated}</b> existing alerts\n`;
+    }
+    response += `Thresholds: ▲ ${highSign}${thresholdHigh}% | ▼ ${lowSign}${thresholdLow}%\n\n`;
+    response += `Use /alerts to view or /removealert &lt;resource&gt; to remove one.`;
+
+    await sendTelegramAwait(chatId, response);
 
   } catch (error) {
     console.error('[setall] error:', error.message);
