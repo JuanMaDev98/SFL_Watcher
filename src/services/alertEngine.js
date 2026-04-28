@@ -190,12 +190,9 @@ async function sendTelegramAlert(userId, resource, currentPct, stats, thresholdH
       const base64 = buffer.toString('base64');
       const chartDataUrl = `data:image/png;base64,${base64}`;
 
-      const caption = [
-        `${emoji} <b>${resource.toUpperCase()} Alert!</b>`,
-        `Current: <code>${sign}${currentPct}%</code> vs avg`,
-        `Price: ${stats.current_price?.toFixed(4)} | Avg: ${stats.avg_price?.toFixed(4)}`,
-        `Thresholds: ▲ +${thresholdHigh}% | ▼ ${thresholdLow}%`
-      ].join('\n');
+      const msg = formatAlertMessage(resource, currentPct, stats, thresholdHigh, thresholdLow);
+
+      const caption = msg;
 
       const sent = await sendTelegramPhoto(userId, chartDataUrl, caption);
       if (!sent) {
