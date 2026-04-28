@@ -557,13 +557,12 @@ async function processRemoveAlert(chatId, resource) {
 
     const { error } = await supabase
       .from('user_alerts')
-      .update({ enabled: false, updated_at: new Date().toISOString() })
+      .delete()
       .eq('user_id', chatId)
-      .eq('resource', resource.toLowerCase())
-      .eq('enabled', true);
+      .eq('resource', resource.toLowerCase());
 
     if (error) throw error;
-    await sendTelegramAwait(chatId, `🗑️ Alert for <b>${resource}</b> removed.`);
+    await sendTelegramAwait(chatId, `🗑️ Alert for <b>${resource}</b> permanently deleted.`);
 
   } catch (error) {
     console.error('[removealert] error:', error.message);
@@ -682,15 +681,14 @@ async function processRemoveAllAlerts(chatId) {
   const supabase = require('../lib/supabase');
 
   try {
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('user_alerts')
-      .update({ enabled: false, updated_at: new Date().toISOString() })
-      .eq('user_id', chatId)
-      .eq('enabled', true);
+      .delete()
+      .eq('user_id', chatId);
 
     if (error) throw error;
 
-    await sendTelegramAwait(chatId, '🗑️ <b>All Alerts Removed</b>\n\nAll your price alerts have been deleted.');
+    await sendTelegramAwait(chatId, '🗑️ <b>All Alerts Permanently Deleted</b>\n\nAll your price alerts have been removed from the database.');
 
   } catch (error) {
     console.error('[removeallalerts] error:', error.message);
