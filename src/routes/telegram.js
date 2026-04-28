@@ -196,7 +196,7 @@ router.post('/webhook', async (req, res) => {
       '/ntfytest - Send test notification to phone\n' +
       '/ntfygraph on/off - Enable/disable graph images in NTFY\n' +
       '/ntfystatus - Check your NTFY settings\n\n' +
-      '📋 <b>Note:</b> NTFY notifications are public. DO NOT share your topic.
+      '📋 <b>Note:</b> NTFY notifications are public. DO NOT share your topic.\n'
     );
   }
   else if (command === '/list') {
