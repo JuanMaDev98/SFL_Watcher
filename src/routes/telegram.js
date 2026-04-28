@@ -38,8 +38,6 @@ async function sendTelegramAwait(chatId, text) {
  */
 async function sendPhoto(chatId, photoUrl, caption) {
   try {
-    // If it's a data URL, convert to Blob for proper upload
-    let body;
     if (photoUrl.startsWith('data:')) {
       const mimeMatch = photoUrl.match(/^data:([^;]+);base64,/);
       const mime = mimeMatch ? mimeMatch[1] : 'image/svg+xml';
@@ -47,38 +45,24 @@ async function sendPhoto(chatId, photoUrl, caption) {
       const buffer = Buffer.from(base64, 'base64');
       const blob = new Blob([buffer], { type: mime });
 
-      // Use FormData for file upload
       const form = new FormData();
       form.append('chat_id', chatId);
       form.append('photo', blob, 'chart.png');
       form.append('caption', caption);
       form.append('parse_mode', 'HTML');
 
-      const resp = await fetch(`${TELEGRAM_API}/sendPhoto`, {
-        method: 'POST',
-        body: form
-      });
+      const resp = await fetch(`${TELEGRAM_API}/sendPhoto`, { method: 'POST', body: form });
       const data = await resp.json();
-      if (!resp.ok) {
-        console.error('[sendPhoto] Telegram error:', data);
-      }
+      if (!resp.ok) console.error('[sendPhoto] Telegram error:', data);
       return resp.ok;
     } else {
-      // Regular URL
       const resp = await fetch(`${TELEGRAM_API}/sendPhoto`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          photo: photoUrl,
-          caption: caption,
-          parse_mode: 'HTML'
-        })
+        body: JSON.stringify({ chat_id: chatId, photo: photoUrl, caption, parse_mode: 'HTML' })
       });
       const data = await resp.json();
-      if (!resp.ok) {
-        console.error('[sendPhoto] Telegram error:', data);
-      }
+      if (!resp.ok) console.error('[sendPhoto] Telegram error:', data);
       return resp.ok;
     }
   } catch (e) {
@@ -113,7 +97,11 @@ router.post('/webhook', async (req, res) => {
       '/list - All resources\n' +
       '/alerts - View your alerts\n' +
       '/alert &lt;resource&gt; &lt;high%&gt; &lt;low%&gt; - Set/update alert\n' +
-      '/removealert &lt;resource&gt; - Remove alert'
+      '/removealert &lt;resource&gt; - Remove alert\n\n' +
+      '<b>💳 Subscription:</b>\n' +
+      '/connectwallet - Link your wallet\n' +
+      '/subscribe - Subscribe ($1 USD/month)\n' +
+      '/status - Check subscription'
     );
   }
   else if (command === '/help') {
@@ -131,7 +119,18 @@ router.post('/webhook', async (req, res) => {
       '<b>Alert examples:</b>\n' +
       '/alert yam +10 -15\n' +
       '→ alerts when yam is +10% above avg OR -15% below avg\n\n' +
-      '⚠️ /alert replaces any existing alert for that resource.'
+      '⚠️ /alert replaces any existing alert for that resource.\n\n' +
+      '<b>Subscription ($1 USD/month):</b>\n' +
+      '/connectwallet &lt;address&gt; - Link your wallet\n' +
+      '/wallet - See your linked wallet\n' +
+      '/subscribe - Subscribe / extend\n' +
+      '/pay - Verify payment after sending FLOWER\n\n' +
+      '<b>💡 How it works:</b>\n' +
+      '1. /connectwallet &lt;your_address&gt;\n' +
+      '2. /subscribe to get payment amount\n' +
+      '3. Send FLOWER from YOUR wallet to the address shown\n' +
+      '4. /pay to verify and activate\n\n' +
+      '<b>⚠️ Important:</b> You MUST send from your linked wallet.'
     );
   }
   else if (command === '/list') {
@@ -170,6 +169,13 @@ router.post('/webhook', async (req, res) => {
     const resource = parts.length > 1 ? parts[1].toLowerCase() : null;
     await processRemoveAlert(chatId, resource);
   }
+  else if (command === '/connectwallet') {
+    const wallet = parts.length > 1 ? parts[1].trim() : null;
+    await processConnectWallet(chatId, wallet);
+  }
+  else if (command === '/wallet') {
+    await processShowWallet(chatId);
+  }
   else if (command === '/subscribe') {
     await processSubscribe(chatId);
   }
@@ -193,8 +199,6 @@ router.post('/webhook', async (req, res) => {
 async function processPriceSimple(chatId, resource) {
   try {
     const { getResourceHistory } = require('../services/priceFetcher');
-
-    // Use 90 days of data
     const history = await getResourceHistory(resource, 90);
 
     if (!history || history.length === 0) {
@@ -252,9 +256,8 @@ async function processAllPrices(chatId) {
 async function processGraph(chatId, resource) {
   try {
     const { getResourceHistory } = require('../services/priceFetcher');
-    const { generateChartDataUrl, generateChartBuffer, calculateStats } = require('../services/chartService');
+    const { generateChartBuffer, calculateStats } = require('../services/chartService');
 
-    // Use all available data (up to 90 days)
     const history = await getResourceHistory(resource, 90);
 
     if (!history || history.length === 0) {
@@ -262,12 +265,10 @@ async function processGraph(chatId, resource) {
       return;
     }
 
-    // Calculate stats
     const stats = calculateStats(history);
     const emoji = stats.pct >= 0 ? '📈' : '📉';
     const sign = stats.pct >= 0 ? '+' : '';
 
-    // Caption with stats
     const caption =
       `<b>${resource.toUpperCase()}</b>\n\n` +
       `💰 Current: <code>${stats.current.toFixed(6)}</code>\n` +
@@ -276,7 +277,7 @@ async function processGraph(chatId, resource) {
       `${emoji} vs Avg: ${sign}${stats.pct}%\n\n` +
       `📈 Data Points: ${history.length}`;
 
-    // Generate chart via QuickChart POST API (no URL length limit)
+    const { generateChartDataUrl } = require('../services/chartService');
     const { chartConfig } = generateChartDataUrl(resource, history);
     const arrayBuffer = await generateChartBuffer(chartConfig);
     const buffer = Buffer.from(arrayBuffer);
@@ -288,12 +289,7 @@ async function processGraph(chatId, resource) {
       const resp = await fetch(`${TELEGRAM_API}/sendDocument`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          document: chartUrl,
-          caption: caption,
-          parse_mode: 'HTML'
-        })
+        body: JSON.stringify({ chat_id: chatId, document: chartUrl, caption, parse_mode: 'HTML' })
       });
       const data = await resp.json();
       if (!resp.ok) {
@@ -311,7 +307,6 @@ async function processDebug(chatId) {
   try {
     const { getResourceHistory } = require('../services/priceFetcher');
     const { generateChartUrl } = require('../services/chartService');
-
     const history = await getResourceHistory('yam', 90);
     const chartUrl = generateChartUrl('yam', history);
     await sendTelegramAwait(chatId, `🔧 Debug:\nHistory: ${history.length} points\nURL: ${chartUrl.length} chars`);
@@ -325,7 +320,6 @@ async function processAlertConfig(chatId, input, isListMode) {
   const supabase = require('../lib/supabase');
 
   try {
-    // List user's alerts
     if (isListMode || !input.trim()) {
       const { data: alerts, error } = await supabase
         .from('user_alerts')
@@ -359,7 +353,6 @@ async function processAlertConfig(chatId, input, isListMode) {
       return;
     }
 
-    // Parse: /alert yam +10 -15
     const tokens = input.trim().split(/\s+/);
     if (tokens.length < 3) {
       await sendTelegramAwait(chatId,
@@ -379,11 +372,9 @@ async function processAlertConfig(chatId, input, isListMode) {
       return;
     }
 
-    // High should be positive (price above avg), low should be negative (price below avg)
-    const thresholdHigh = Math.abs(rawHigh);  // Always store positive
-    const thresholdLow = -Math.abs(rawLow);   // Always store negative
+    const thresholdHigh = Math.abs(rawHigh);
+    const thresholdLow = -Math.abs(rawLow);
 
-    // Check if alert exists for this user+resource
     const { data: existing } = await supabase
       .from('user_alerts')
       .select('*')
@@ -394,7 +385,6 @@ async function processAlertConfig(chatId, input, isListMode) {
 
     let updated;
     if (existing) {
-      // Update
       const { error } = await supabase
         .from('user_alerts')
         .update({
@@ -408,7 +398,6 @@ async function processAlertConfig(chatId, input, isListMode) {
       if (error) throw error;
       updated = true;
     } else {
-      // Insert
       const { error } = await supabase
         .from('user_alerts')
         .insert({
@@ -459,7 +448,6 @@ async function processRemoveAlert(chatId, resource) {
       .eq('enabled', true);
 
     if (error) throw error;
-
     await sendTelegramAwait(chatId, `🗑️ Alert for <b>${resource}</b> removed.`);
 
   } catch (error) {
@@ -468,42 +456,119 @@ async function processRemoveAlert(chatId, resource) {
   }
 }
 
+// ============================================
+// WALLET & SUBSCRIPTION COMMANDS
+// ============================================
+
+async function processConnectWallet(chatId, walletAddress) {
+  const { connectWallet, ensureSubscription } = require('../services/subscriptionService');
+
+  try {
+    // Ensure subscription record first (creates trial if new)
+    await ensureSubscription(chatId.toString());
+
+    if (!walletAddress) {
+      await sendTelegramAwait(chatId,
+        '👛 <b>Connect Your Wallet</b>\n\n' +
+        'Usage: /connectwallet &lt;your_eth_address&gt;\n\n' +
+        'Example:\n' +
+        '/connectwallet 0x742d35Cc6634C0532925a3b844Bc9e7595f1d687\n\n' +
+        'This wallet will be used for subscription payments.'
+      );
+      return;
+    }
+
+    // Remove 0x prefix if provided without it - actually keep it, validate properly
+    await connectWallet(chatId.toString(), walletAddress);
+
+    await sendTelegramAwait(chatId,
+      `✅ <b>Wallet Connected!</b>\n\n` +
+      `Address: <code>${walletAddress.toLowerCase()}</code>\n\n` +
+      `Now use /subscribe to see payment details.`
+    );
+
+  } catch (error) {
+    console.error('[connectwallet] error:', error.message);
+    if (error.message.includes('Invalid Ethereum')) {
+      await sendTelegramAwait(chatId, '❌ Invalid Ethereum address format.\n\nExample: 0x742d35Cc6634C0532925a3b844Bc9e7595f1d687');
+    } else {
+      await sendTelegramAwait(chatId, `Error: ${error.message}`);
+    }
+  }
+}
+
+async function processShowWallet(chatId) {
+  const { getUserWallet } = require('../services/subscriptionService');
+
+  try {
+    const wallet = await getUserWallet(chatId.toString());
+
+    if (!wallet) {
+      await sendTelegramAwait(chatId,
+        '👛 <b>Wallet Status</b>\n\n' +
+        'No wallet connected.\n\n' +
+        'Use /connectwallet &lt;address&gt; to link your wallet.'
+      );
+      return;
+    }
+
+    await sendTelegramAwait(chatId,
+      `👛 <b>Wallet Connected</b>\n\n` +
+      `<code>${wallet}</code>\n\n` +
+      `Use /subscribe to pay.`
+    );
+
+  } catch (error) {
+    console.error('[wallet] error:', error.message);
+    await sendTelegramAwait(chatId, `Error: ${error.message}`);
+  }
+}
+
 async function processSubscribe(chatId) {
-  const { ensureSubscription, getSubscriptionCost, PAYMENT_ADDRESS } = require('../services/subscriptionService');
+  const { ensureSubscription, getSubscriptionCost, PAYMENT_ADDRESS, getUserWallet } = require('../services/subscriptionService');
 
   try {
     // Ensure subscription record (creates trial if new)
     const sub = await ensureSubscription(chatId.toString());
     const cost = await getSubscriptionCost();
+    const userWallet = await getUserWallet(chatId.toString());
 
     const lines = [
       '💳 <b>Subscribe to SFL Watcher Pro</b>',
       '',
-      `📅 <b>Your Status:</b> ${sub.status.toUpperCase()}`
+      `📅 <b>Status:</b> ${sub.status.toUpperCase()}`
     ];
 
     if (sub.days_remaining !== undefined) {
       lines.push(`⏰ ${sub.days_remaining} days remaining`);
     }
 
-    lines.push('');
-    lines.push('<b>💰 Subscription:</b>');
-    lines.push('• 1 month = $1 USD in FLOWER');
-    lines.push('• 7 days FREE trial for new users');
-
-    if (cost) {
+    if (!userWallet) {
       lines.push('');
-      lines.push(`💐 Current FLOWER price: $${cost.flower_price_usd.toFixed(4)}`);
-      lines.push(`📦 30 days = ~${cost.flower_amount} FLOWER`);
+      lines.push('⚠️ <b>No wallet connected!</b>');
+      lines.push('Use /connectwallet &lt;address&gt; first.');
+    } else {
+      lines.push('');
+      lines.push('<b>💰 Payment:</b>');
+      lines.push('Send FLOWER from your wallet to:');
+      lines.push(`<code>${PAYMENT_ADDRESS}</code>`);
+
+      if (cost) {
+        lines.push('');
+        lines.push(`📦 Amount: <b>~${cost.flower_amount} FLOWER</b>`);
+        lines.push(`   (≈ $${cost.usd} USD at $${cost.flower_price_usd.toFixed(4)}/FLOWER)`);
+      }
+
+      lines.push('');
+      lines.push('After sending, use /pay to verify payment.');
     }
 
     lines.push('');
-    lines.push('<b>How to pay:</b>');
-    lines.push('1. Send FLOWER to:');
-    lines.push(`<code>${PAYMENT_ADDRESS}</code>`);
-    lines.push('2. Use /pay <your_tx_hash> to verify');
-    lines.push('');
-    lines.push('Networks: <b>Base</b> or <b>Ronin</b>');
+    lines.push('<b>📋 How it works:</b>');
+    lines.push('1. /connectwallet &lt;your_address&gt;');
+    lines.push('2. /subscribe to see amount');
+    lines.push('3. Send FLOWER from YOUR wallet');
+    lines.push('4. /pay to activate');
 
     await sendTelegramAwait(chatId, lines.join('\n'));
 
@@ -514,22 +579,23 @@ async function processSubscribe(chatId) {
 }
 
 async function processStatus(chatId) {
-  const { getSubscriptionStatus } = require('../services/subscriptionService');
+  const { getSubscriptionStatus, getUserWallet } = require('../services/subscriptionService');
 
   try {
     const sub = await getSubscriptionStatus(chatId.toString());
+    const wallet = await getUserWallet(chatId.toString());
 
     let message;
     if (sub.status === 'new' || sub.status === 'trial') {
-      message = `✅ <b>Trial Active</b>\n\n⏰ ${sub.days_remaining} days left in your free trial\n\nUse /subscribe to see payment options.`;
+      message = `✅ <b>Trial Active</b>\n\n⏰ ${sub.days_remaining} days left\n\nUse /subscribe to pay and extend.`;
     } else if (sub.status === 'trial_expired') {
-      message = `⏳ <b>Trial Expired</b>\n\nYour free trial ended. Subscribe to continue using the bot.\n\nUse /subscribe to pay.`;
+      message = `⏳ <b>Trial Expired</b>\n\nYour free trial ended.\n\nUse /subscribe to pay.`;
     } else if (sub.status === 'active') {
       message = `✅ <b>Subscription Active</b>\n\n📅 ${sub.days_remaining} days remaining\n\nUse /subscribe to extend.`;
     } else if (sub.status === 'expired') {
       message = `⏳ <b>Subscription Expired</b>\n\nUse /subscribe to renew.`;
     } else {
-      message = `❓ Status unknown. Use /subscribe.`;
+      message = `❓ Use /subscribe to start.`;
     }
 
     await sendTelegramAwait(chatId, message);
@@ -540,54 +606,72 @@ async function processStatus(chatId) {
   }
 }
 
-async function processPay(chatId, txHash) {
-  const { verifyFlowerPayment } = require('../services/paymentVerifier');
-  const { recordPayment, addSubscriptionDays, getSubscriptionCost, isTxHashUsed, PAYMENT_ADDRESS } = require('../services/subscriptionService');
+async function processPay(chatId) {
+  const { verifyWalletPayment, getSubscriptionCost, addSubscriptionDays, recordPayment, isTxHashUsed, getUserWallet, PAYMENT_ADDRESS } = require('../services/subscriptionService');
 
   try {
-    if (!txHash) {
-      const cost = await getSubscriptionCost();
+    const userWallet = await getUserWallet(chatId.toString());
+
+    if (!userWallet) {
       await sendTelegramAwait(chatId,
-        '💐 <b>Pay with FLOWER</b>\n\n' +
-        `Send FLOWER to:\n<code>${PAYMENT_ADDRESS}</code>\n\n` +
-        'Then send:\n/pay <your_tx_hash>\n\n' +
-        'Example: /pay 0x1234...\n\n' +
-        'Supported networks: <b>Base</b>, <b>Ronin</b>'
+        '⚠️ <b>Wallet not connected</b>\n\n' +
+        'Use /connectwallet &lt;address&gt; first.'
       );
       return;
     }
 
-    // Validate tx hash format
-    if (!txHash.startsWith('0x') || txHash.length !== 66) {
-      await sendTelegramAwait(chatId, '❌ Invalid tx hash format. Must be 66 chars starting with 0x.');
+    // Get current FLOWER cost
+    const cost = await getSubscriptionCost();
+    if (!cost) {
+      await sendTelegramAwait(chatId, '❌ Could not get FLOWER price. Try again later.');
       return;
     }
 
-    // Check if already used
-    const used = await isTxHashUsed(txHash);
-    if (used) {
-      await sendTelegramAwait(chatId, '⚠️ This transaction was already used. Each tx can only be used once.');
-      return;
-    }
+    await sendTelegramAwait(chatId,
+      '🔍 <b>Searching for payment...</b>\n\n' +
+      `Looking for transfers from:\n<code>${userWallet}</code>\n\n' +
+      `To: ${PAYMENT_ADDRESS}\n` +
+      `Amount: ~${cost.flower_amount} FLOWER\n\n' +
+      `This may take a few seconds...'
+    );
 
-    // Verify payment on-chain
-    await sendTelegramAwait(chatId, '🔍 Verifying payment on-chain...');
-    const result = await verifyFlowerPayment(txHash);
+    // Search for payment from user's wallet to payment address
+    const result = await verifyWalletPayment(userWallet, cost.flower_amount);
 
     if (!result.success) {
-      await sendTelegramAwait(chatId, `❌ Verification failed: ${result.error}\n\nMake sure you sent FLOWER to the correct address and the transaction is confirmed.`);
+      await sendTelegramAwait(chatId,
+        `❌ <b>Payment Not Found</b>\n\n` +
+        `No transfer found from your wallet to the payment address.\n\n` +
+        `Make sure you:\n` +
+        `1. Sent FLOWER from YOUR wallet (${userWallet})\n` +
+        `2. Sent to: ${PAYMENT_ADDRESS}\n` +
+        `3. Amount: ~${cost.flower_amount} FLOWER\n` +
+        `4. Wait a few seconds after sending`
+      );
       return;
     }
 
-    // Payment verified! Add subscription
+    // Check if this tx_hash was already used
+    const used = await isTxHashUsed(result.txHash);
+    if (used) {
+      await sendTelegramAwait(chatId,
+        '⚠️ <b>Payment Already Verified</b>\n\n' +
+        `Tx: ${result.txHash.slice(0, 10)}...\n` +
+        `This payment was already credited.`
+      );
+      return;
+    }
+
+    // Payment found and not used! Add subscription
     const added = await addSubscriptionDays(chatId.toString(), 30);
-    await recordPayment(chatId.toString(), txHash, result.network, result.amount, null);
+    await recordPayment(chatId.toString(), result.txHash, result.network, result.amount, cost.usd);
 
     if (added) {
       await sendTelegramAwait(chatId,
         `✅ <b>Payment Verified!</b>\n\n` +
-        `💐 Sent: ${result.amount.toFixed(4)} FLOWER\n` +
+        `💐 Amount: ${result.amount.toFixed(4)} FLOWER\n` +
         `🔗 Network: ${result.network.toUpperCase()}\n` +
+        `🔗 Tx: ${result.txHash.slice(0, 16)}...\n` +
         `📅 +30 days added to your subscription!\n\n` +
         `Use /status to check your subscription.`
       );

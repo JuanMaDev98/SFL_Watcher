@@ -1,200 +1,259 @@
-/**
- * Payment verification service - verifies FLOWER transactions on-chain via Alchemy
- */
-const { PAYMENT_ADDRESS, FLOWER_CONTRACT_BASE, FLOWER_CONTRACT_RONIN } = require('./subscriptionService');
+const { createClient } = require('@supabase/supabase-js');
 
-// Alchemy RPCs
-const ALCHEMY_BASE = 'https://base-mainnet.g.alchemy.com/v2/O07GS-UUppyzAt3Dngczk';
-const ALCHEMY_RONIN = 'https://ronin-mainnet.g.alchemy.com/v2/O07GS-UUppyzAt3Dngczk';
+const ALCHEMY_BASE = process.env.ALCHEMY_BASE_RPC || `https://base-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`;
+const ALCHEMY_RONIN = process.env.ALCHEMY_RONIN_RPC || `https://ronin-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`;
 
-// ERC-20 Transfer event signature
-const TRANSFER_EVENT = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df35bdc8';
+const FLOWER_CONTRACT_BASE = '0x3E12b9d6A4D12cd9b4a6d613872d0Eb32f68b380';
+const FLOWER_CONTRACT_RONIN = '0x3e12b9d6a4d12cd9b4a6d613872d0eb32f68b380';
+const FLOWER_PAYMENT_ADDRESS = process.env.FLOWER_PAYMENT_ADDRESS || '0xbeA7Aa84316661BBC3963e2c5276d2Cd952D7806';
+const FLOWER_DECIMALS = 18;
 
 /**
- * Determine network from tx hash
- * - Base txs start with 0x01 (or sometimes 0x02 for EIP-155)
- * - Ronin txs are different format (32 bytes with different prefix)
- * 
- * Actually, we need to use the tx hash format:
- * - Base: same as Ethereum, 66 chars, starts with 0x
- * - Ronin: also 66 chars but chain-specific
- * 
- * We can detect by trying RPCs - if Base returns a valid tx and Ronin doesn't, it's Base.
+ * Get Alchemy RPC URL for network
  */
-function detectNetwork(txHash) {
-  // Ronin tx hashes typically start with 0x, but are from a different chain
-  // We can use the length and format to make an educated guess
-  // Base uses Ethereum-format txs (same as mainnet)
-  // Ronin uses a custom format but also 66 chars
-  
-  // For now, we'll try both RPCs to determine
-  if (txHash.startsWith('0x') && txHash.length === 66) {
-    // Could be either chain, need to check both
-    return null; // Unknown, need to check
-  }
-  return 'base'; // Default to Base
+function getAlchemyRpc(network) {
+  return network === 'base' ? ALCHEMY_BASE : ALCHEMY_RONIN;
 }
 
 /**
- * Verify a FLOWER payment transaction on Base or Ronin
- * Returns: { success: true, amount: n, from: address, network: 'base'/'ronin' }
- * or: { success: false, error: string }
+ * Fetch from Alchemy JSON-RPC API
  */
-async function verifyFlowerPayment(txHash) {
-  if (!txHash || !txHash.startsWith('0x') || txHash.length !== 66) {
-    return { success: false, error: 'Invalid transaction hash format' };
-  }
-
-  // Try Base first
-  let result = await verifyOnNetwork(txHash, 'base', ALCHEMY_BASE);
-  if (result.success) return result;
-
-  // Try Ronin
-  result = await verifyOnNetwork(txHash, 'ronin', ALCHEMY_RONIN);
-  if (result.success) return result;
-
-  return { success: false, error: 'Transaction not found or not a valid FLOWER transfer' };
-}
-
-/**
- * Verify transaction on specific network
- */
-async function verifyOnNetwork(txHash, network, rpcUrl) {
+async function alchemyFetch(network, method, params) {
+  const rpc = getAlchemyRpc(network);
   try {
-    // Get transaction receipt
-    const receiptResp = await fetch(rpcUrl, {
+    const resp = await fetch(rpc, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'eth_getTransactionReceipt',
-        params: [txHash]
-      })
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
     });
-
-    if (!receiptResp.ok) {
-      return { success: false, error: `RPC error: ${receiptResp.status}` };
-    }
-
-    const receiptData = await receiptResp.json();
-    
-    if (receiptData.error) {
-      return { success: false, error: receiptData.error.message || 'RPC error' };
-    }
-
-    const receipt = receiptData.result;
-    
-    if (!receipt) {
-      return { success: false, error: 'Transaction not found or still pending' };
-    }
-
-    // Check if transaction was successful (status: 0x1 = success)
-    if (receipt.status !== '0x1') {
-      return { success: false, error: 'Transaction failed on-chain' };
-    }
-
-    // Check if transaction is to the payment address
-    const toAddress = receipt.to?.toLowerCase();
-    if (toAddress !== PAYMENT_ADDRESS.toLowerCase()) {
-      return { success: false, error: `Payment sent to wrong address. Expected ${PAYMENT_ADDRESS.substring(0, 10)}...` };
-    }
-
-    // Check logs for FLOWER Transfer event
-    // Transfer(address from, address to, uint256 amount)
-    // The event signature is: Transfer(address,address,uint256)
-    // Topic 0 = keccak256("Transfer(address,address,uint256)")
-    
-    let tokenAmount = null;
-    let fromAddress = null;
-
-    for (const log of receipt.logs || []) {
-      // Check if log is from FLOWER contract
-      const logAddress = log.address?.toLowerCase();
-      const isFlowerContract = (logAddress === FLOWER_CONTRACT_BASE.toLowerCase() || 
-                               logAddress === FLOWER_CONTRACT_RONIN.toLowerCase());
-      
-      if (isFlowerContract && log.topics?.length >= 3) {
-        // Topic[0] = Transfer event signature
-        // Topic[1] = from address (indexed)
-        // Topic[2] = to address (indexed)
-        // Data = amount (uint256)
-        
-        const fromAddressRaw = log.topics[1];
-        const toAddressRaw = log.topics[2];
-        
-        // Extract addresses from topics (remove padding)
-        fromAddress = '0x' + fromAddressRaw.slice(-40);
-        const toAddressLog = '0x' + toAddressRaw.slice(-40);
-        
-        // Check if to address matches our payment address
-        if (toAddressLog.toLowerCase() === PAYMENT_ADDRESS.toLowerCase()) {
-          // Parse token amount from data (hex to decimal)
-          if (log.data && log.data !== '0x') {
-            const amountHex = log.data;
-            const amountWei = BigInt(amountHex);
-            // FLOWER has 18 decimals (like most ERC-20)
-            const decimals = BigInt(1e18);
-            const amountHuman = Number(amountWei / decimals);
-            tokenAmount = amountHuman;
-        }
-      }
-    }
-
-    if (tokenAmount === null) {
-      return { success: false, error: 'No FLOWER transfer found in transaction' };
-    }
-
-    return {
-      success: true,
-      amount: tokenAmount,
-      from: fromAddress,
-      network,
-      txHash
-    };
-
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-}
-
-/**
- * Check if an address is a valid EVM address
- */
-function isValidAddress(address) {
-  return /^0x[a-fA-F0-9]{40}$/.test(address);
-}
-
-/**
- * Get current block number (for debugging)
- */
-async function getBlockNumber(network = 'base') {
-  const rpcUrl = network === 'base' ? ALCHEMY_BASE : ALCHEMY_RONIN;
-  
-  try {
-    const resp = await fetch(rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'eth_blockNumber',
-        params: []
-      })
-    });
-    
     const data = await resp.json();
-    return data.result ? parseInt(data.result, 16) : null;
-  } catch (error) {
+    if (data.error) {
+      console.error(`[alchemyFetch] ${method} error:`, data.error);
+      return null;
+    }
+    return data.result;
+  } catch (e) {
+    console.error(`[alchemyFetch] ${method} network=${network}:`, e.message);
     return null;
   }
 }
 
+/**
+ * Get FLOWER balance for an address (for ERC-20 transfer detection)
+ */
+async function getTokenTransfers(network, address, fromBlock = '0x0') {
+  // ERC-20 Transfer event signature: Transfer(address,address,uint256)
+  const TRANSFER_TOPIC0 = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df35b100';
+
+  // Get logs for Transfer events where this address is the 'from'
+  const logs = await alchemyFetch(network, 'eth_getLogs', [{
+    address: network === 'base' ? FLOWER_CONTRACT_BASE : FLOWER_CONTRACT_RONIN,
+    fromBlock,
+    toBlock: 'latest',
+    topics: [
+      TRANSFER_TOPIC0,
+      '0x000000000000000000000000' + address.slice(2).toLowerCase(), // from
+      '0x000000000000000000000000' + FLOWER_PAYMENT_ADDRESS.slice(2).toLowerCase() // to (payment address)
+    ]
+  }]);
+
+  return logs || [];
+}
+
+/**
+ * Get native token (RON/ETH) transfers for an address
+ */
+async function getNativeTransfers(network, address, fromBlock = '0x0') {
+  // eth_getLogs doesn't support value filtering directly, get all logs for this address as 'from'
+  const logs = await alchemyFetch(network, 'eth_getLogs', [{
+    fromBlock,
+    toBlock: 'latest',
+    topics: [
+      '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df35b100' // Transfer topic (only works for ERC-20)
+    ]
+  }]);
+
+  // For native token (RON/ETH), we need eth_getTransactionByHash after getting tx hashes from blocks
+  // This is more complex - let's use eth_getLogs for standard Transfer events only for now
+  return [];
+}
+
+/**
+ * Get transaction receipt to verify ERC-20 Transfer
+ */
+async function getTransferReceipt(network, txHash) {
+  const receipt = await alchemyFetch(network, 'eth_getTransactionReceipt', [txHash]);
+  if (!receipt) return null;
+
+  // Get transaction to check 'from' address and value
+  const tx = await alchemyFetch(network, 'eth_getTransactionByHash', [txHash]);
+  if (!tx) return null;
+
+  return { receipt, tx };
+}
+
+/**
+ * Verify FLOWER payment by checking user's wallet history
+ * Returns { success, txHash, amount, network } if found
+ */
+async function verifyWalletPayment(userWalletAddress, requiredAmountFlower, networks = ['base', 'ronin']) {
+  const requiredAmountWei = BigInt(Math.ceil(requiredAmountFlower * 10 ** FLOWER_DECIMALS));
+
+  for (const network of networks) {
+    try {
+      // Get all Transfer events from user wallet to payment address
+      const logs = await getTokenTransfers(network, userWalletAddress);
+
+      console.log(`[verifyWalletPayment] ${network}: found ${logs.length} transfer logs for ${userWalletAddress}`);
+
+      for (const log of logs) {
+        // Parse amount from log data
+        // Topics: [ Transfer topic, from (indexed), to (indexed) ]
+        // Data: amount (uint256)
+        const amountHex = log.topics[3] || log.data;
+        if (!amountHex || amountHex === '0x') continue;
+
+        const amount = BigInt(amountHex);
+        if (amount >= requiredAmountWei) {
+          // Found a valid transfer
+          // Get tx hash from log's transactionHash
+          const txHash = log.transactionHash;
+          const blockNum = log.blockNumber;
+          const logIndex = log.logIndex;
+
+          console.log(`[verifyWalletPayment] Found valid tx ${txHash}: ${amount} >= ${requiredAmountWei}`);
+
+          return {
+            success: true,
+            txHash,
+            amount: Number(amount) / 10 ** FLOWER_DECIMALS,
+            network,
+            blockNumber: parseInt(blockNum, 16),
+            logIndex: parseInt(logIndex, 16)
+          };
+        }
+      }
+    } catch (e) {
+      console.error(`[verifyWalletPayment] ${network} error:`, e.message);
+      continue;
+    }
+  }
+
+  return { success: false, error: 'No matching payment found' };
+}
+
+/**
+ * Get recent transactions for an address (fallback method)
+ */
+async function getRecentTxs(network, address, maxCount = 10) {
+  // Get latest block first
+  const latestBlockHex = await alchemyFetch(network, 'eth_blockNumber', []);
+  if (!latestBlockHex) return [];
+
+  const latestBlock = parseInt(latestBlockHex, 16);
+  const fromBlock = Math.max(0, latestBlock - 1000).toString(16); // Search last ~1000 blocks
+
+  // Get logs for any Transfer to our payment address where 'from' includes this user
+  const logs = await alchemyFetch(network, 'eth_getLogs', [{
+    address: network === 'base' ? FLOWER_CONTRACT_BASE : FLOWER_CONTRACT_RONIN,
+    fromBlock: '0x' + fromBlock,
+    toBlock: 'latest',
+    topics: [
+      '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df35b100'
+    ]
+  }]);
+
+  if (!logs || logs.length === 0) return [];
+
+  // Filter logs where 'from' matches user wallet
+  const userLogs = logs.filter(log => {
+    const fromTopic = log.topics[1]; // indexed 'from' parameter
+    if (!fromTopic) return false;
+    // Remove padding: last 20 bytes of the 32-byte topic
+    const fromAddress = '0x' + fromTopic.slice(fromTopic.length - 40);
+    return fromAddress.toLowerCase() === address.toLowerCase();
+  });
+
+  // Extract unique tx hashes
+  const txHashes = [...new Set(userLogs.map(log => log.transactionHash))];
+  return txHashes.slice(0, maxCount);
+}
+
+/**
+ * Verify a specific transaction by hash
+ */
+async function verifyTxHash(network, txHash) {
+  const result = await getTransferReceipt(network, txHash);
+  if (!result) return { success: false, error: 'Transaction not found' };
+
+  const { receipt, tx } = result;
+
+  // Verify transaction succeeded (status 1 = success)
+  if (receipt.status !== '0x1') {
+    return { success: false, error: 'Transaction failed' };
+  }
+
+  // Check it was to the payment address
+  const toAddress = tx.to?.toLowerCase();
+  const paymentAddress = FLOWER_PAYMENT_ADDRESS.toLowerCase();
+  if (toAddress !== paymentAddress) {
+    return { success: false, error: 'Transaction not to payment address' };
+  }
+
+  // Check it was from user's wallet
+  const fromAddress = tx.from?.toLowerCase();
+
+  // For ERC-20 transfers, we need to check logs for Transfer event with our payment address as 'to'
+  // For native token (RON/ETH), the value is in tx.value
+
+  // Check logs for ERC-20 Transfer event
+  const TRANSFER_TOPIC0 = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df35b100';
+  const paymentAddressPadded = '0x000000000000000000000000' + FLOWER_PAYMENT_ADDRESS.slice(2).toLowerCase();
+
+  for (const log of receipt.logs) {
+    if (log.topics[0] === TRANSFER_TOPIC0 && log.address.toLowerCase() === (network === 'base' ? FLOWER_CONTRACT_BASE : FLOWER_CONTRACT_RONIN).toLowerCase()) {
+      // This is a Transfer event from an ERC-20 contract
+      // Check if 'to' parameter matches our payment address
+      const toTopic = log.topics[2];
+      if (toTopic && toTopic.toLowerCase() === paymentAddressPadded.toLowerCase()) {
+        const amountHex = log.topics[3] || log.data;
+        const amount = Number(BigInt(amountHex || '0x0')) / 10 ** FLOWER_DECIMALS;
+        return {
+          success: true,
+          txHash,
+          amount,
+          network,
+          fromAddress,
+          isErc20: true
+        };
+      }
+    }
+  }
+
+  // Check for native token transfer (value in tx)
+  const nativeValue = BigInt(tx.value || '0x0');
+  if (nativeValue > 0n) {
+    return {
+      success: true,
+      txHash,
+      amount: Number(nativeValue) / 10 ** 18,
+      network,
+      fromAddress,
+      isErc20: false
+    };
+  }
+
+  return { success: false, error: 'No valid transfer found' };
+}
+
 module.exports = {
-  verifyFlowerPayment,
-  detectNetwork,
-  isValidAddress,
-  getBlockNumber,
-  ALCHEMY_BASE,
-  ALCHEMY_RONIN
+  verifyWalletPayment,
+  verifyTxHash,
+  getRecentTxs,
+  getTokenTransfers,
+  getTransferReceipt,
+  getAlchemyRpc,
+  FLOWER_PAYMENT_ADDRESS,
+  FLOWER_CONTRACT_BASE,
+  FLOWER_CONTRACT_RONIN
 };

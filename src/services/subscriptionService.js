@@ -1,223 +1,262 @@
-/**
- * Subscription service - handles trial, payments, and subscription status
- */
-const supabase = require('../lib/supabase');
+const { createClient } = require('@supabase/supabase-js');
 
-// FLOWER token config
-const FLOWER_CONTRACT_BASE = '0x3E12b9d6A4D12cd9b4a6d613872d0Eb32f68b380';
-const FLOWER_CONTRACT_RONIN = '0x3e12b9d6a4d12cd9b4a6d613872d0eb32f68b380';
-const PAYMENT_ADDRESS = '0xbeA7Aa84316661BBC3963e2c5276d2Cd952D7806';
-const PRICE_API = 'https://sfl.world/api/v1.1/exchange';
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// Subscription pricing
-const USD_PER_MONTH = 1;
+const FLOWER_PRICE_API = 'https://sfl.world/api/v1.1/exchange';
+const SUBSCRIPTION_USD = 1; // $1 USD = 30 days
+const DAYS_PER_SUBSCRIPTION = 30;
 const TRIAL_DAYS = 7;
 
+let supabase;
+
 /**
- * Get FLOWER price in USD from SFL API
+ * Get or create supabase client with service role
+ */
+function getSupabase() {
+  if (!supabase) {
+    supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+      auth: { persistSession: false }
+    });
+  }
+  return supabase;
+}
+
+/**
+ * Get current FLOWER price in USD
  */
 async function getFlowerPrice() {
   try {
-    const resp = await fetch(PRICE_API);
+    const resp = await fetch(FLOWER_PRICE_API);
     const data = await resp.json();
-    return parseFloat(data.sfl?.usd || 0);
-  } catch (error) {
-    console.error('[subscription] getFlowerPrice error:', error.message);
+    const price = parseFloat(data.sfl?.usd || data.sfl_usd || 0);
+    if (price <= 0) throw new Error('Invalid price');
+    return price;
+  } catch (e) {
+    console.error('[subscriptionService] getFlowerPrice error:', e.message);
     return null;
   }
 }
 
 /**
- * Calculate FLOWER amount for $1 USD
+ * Get subscription cost in FLOWER
  */
-async function getFlowerAmountForSubscription() {
+async function getSubscriptionCost() {
   const price = await getFlowerPrice();
   if (!price) return null;
-  return USD_PER_MONTH / price;
+
+  const flowerAmount = SUBSCRIPTION_USD / price;
+  return {
+    usd: SUBSCRIPTION_USD,
+    flower_price_usd: price,
+    flower_amount: Math.ceil(flowerAmount * 10000) / 10000 // Round up to 4 decimals
+  };
 }
 
 /**
- * Check if user has active subscription (trial or paid)
- */
-async function hasActiveSubscription(userId) {
-  const { data, error } = await supabase
-    .from('user_subscriptions')
-    .select('*')
-    .eq('user_id', userId)
-    .single();
-
-  if (error || !data) return false;
-
-  const now = new Date();
-  
-  if (data.status === 'trial' && data.trial_ends_at) {
-    return new Date(data.trial_ends_at) > now;
-  }
-  
-  if (data.status === 'active' && data.subscription_ends_at) {
-    return new Date(data.subscription_ends_at) > now;
-  }
-  
-  return false;
-}
-
-/**
- * Get subscription status for user
- */
-async function getSubscriptionStatus(userId) {
-  const { data, error } = await supabase
-    .from('user_subscriptions')
-    .select('*')
-    .eq('user_id', userId)
-    .single();
-
-  if (error || !data) {
-    return {
-      status: 'new',
-      trial_active: true,
-      trial_ends_at: new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000),
-      days_remaining: TRIAL_DAYS
-    };
-  }
-
-  const now = new Date();
-  
-  if (data.status === 'trial' && data.trial_ends_at) {
-    const trialEnd = new Date(data.trial_ends_at);
-    if (trialEnd > now) {
-      return {
-        status: 'trial',
-        trial_active: true,
-        trial_ends_at: trialEnd,
-        days_remaining: Math.ceil((trialEnd - now) / (24 * 60 * 60 * 1000))
-      };
-    } else {
-      return {
-        status: 'trial_expired',
-        trial_active: false,
-        trial_ends_at: trialEnd
-      };
-    }
-  }
-  
-  if (data.status === 'active' && data.subscription_ends_at) {
-    const subEnd = new Date(data.subscription_ends_at);
-    if (subEnd > now) {
-      return {
-        status: 'active',
-        trial_active: false,
-        subscription_ends_at: subEnd,
-        days_remaining: Math.ceil((subEnd - now) / (24 * 60 * 60 * 1000))
-      };
-    } else {
-      return {
-        status: 'expired',
-        trial_active: false,
-        subscription_ends_at: subEnd
-      };
-    }
-  }
-  
-  return { status: 'unknown' };
-}
-
-/**
- * Ensure user has a subscription record (creates trial if new)
+ * Ensure user has a subscription record (create trial if new)
  */
 async function ensureSubscription(userId) {
-  const { data, error } = await supabase
+  const db = getSupabase();
+
+  const { data: existing } = await db
     .from('user_subscriptions')
     .select('*')
     .eq('user_id', userId)
     .single();
 
-  if (error || !data) {
-    // Create new trial subscription
-    const trialEnds = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
-    const { error: insertError } = await supabase
-      .from('user_subscriptions')
-      .insert({
-        user_id: userId,
-        status: 'trial',
-        trial_started_at: new Date().toISOString(),
-        trial_ends_at: trialEnds.toISOString()
-      });
+  if (existing) return formatSubscription(existing);
 
-    if (insertError) {
-      console.error('[subscription] ensureSubscription insert error:', insertError.message);
-    }
-    
-    return {
+  // Create trial subscription for new user
+  const trialEndsAt = new Date();
+  trialEndsAt.setDate(trialEndsAt.getDate() + TRIAL_DAYS);
+
+  const { data: newSub, error } = await db
+    .from('user_subscriptions')
+    .insert({
+      user_id: userId,
       status: 'trial',
-      trial_active: true,
-      trial_ends_at: trialEnds,
-      days_remaining: TRIAL_DAYS
-    };
-  }
-  
-  return await getSubscriptionStatus(userId);
+      trial_started_at: new Date().toISOString(),
+      trial_ends_at: trialEndsAt.toISOString()
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return formatSubscription(newSub);
 }
 
 /**
- * Add subscription days to user
+ * Get user's wallet address
  */
-async function addSubscriptionDays(userId, days) {
-  const { data: existing } = await supabase
-    .from('user_subscriptions')
-    .select('*')
+async function getUserWallet(userId) {
+  const db = getSupabase();
+  const { data } = await db
+    .from('user_wallets')
+    .select('wallet_address')
     .eq('user_id', userId)
     .single();
+  return data?.wallet_address || null;
+}
 
-  const now = new Date();
-  let newEndDate;
+/**
+ * Connect or update user's wallet address
+ */
+async function connectWallet(userId, walletAddress) {
+  const db = getSupabase();
 
-  if (existing && existing.status === 'active' && existing.subscription_ends_at) {
-    const currentEnd = new Date(existing.subscription_ends_at);
-    newEndDate = currentEnd > now 
-      ? new Date(currentEnd.getTime() + days * 24 * 60 * 60 * 1000)
-      : new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
-  } else {
-    newEndDate = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+  // Validate Ethereum address
+  if (!/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
+    throw new Error('Invalid Ethereum address format');
   }
 
-  const { error } = await supabase
-    .from('user_subscriptions')
-    .update({
-      status: 'active',
-      subscription_ends_at: newEndDate.toISOString(),
-      trial_ends_at: null,
-      updated_at: now.toISOString()
-    })
-    .eq('user_id', userId);
+  const { error } = await db
+    .from('user_wallets')
+    .upsert({
+      user_id: userId,
+      wallet_address: walletAddress.toLowerCase(),
+      connected_at: new Date().toISOString()
+    });
 
-  if (error) {
-    console.error('[subscription] addSubscriptionDays error:', error.message);
-    return false;
-  }
-
+  if (error) throw error;
   return true;
 }
 
 /**
- * Record a payment in database
+ * Get subscription status
  */
-async function recordPayment(userId, txHash, network, amountToken, amountUsd) {
-  const { error } = await supabase
+async function getSubscriptionStatus(userId) {
+  const db = getSupabase();
+
+  const { data: sub } = await db
+    .from('user_subscriptions')
+    .select('*')
+    .eq('user_id', userId)
+    .single();
+
+  if (!sub) {
+    return { status: 'new', days_remaining: 0 };
+  }
+
+  return formatSubscription(sub);
+}
+
+/**
+ * Format subscription for Telegram response
+ */
+function formatSubscription(sub) {
+  const now = new Date();
+  let status = sub.status;
+  let daysRemaining = 0;
+
+  if (status === 'trial') {
+    const ends = new Date(sub.trial_ends_at);
+    const diff = Math.ceil((ends - now) / (1000 * 60 * 60 * 24));
+    daysRemaining = Math.max(0, diff);
+
+    if (daysRemaining <= 0) {
+      status = 'trial_expired';
+      daysRemaining = 0;
+    }
+  } else if (status === 'active') {
+    const ends = new Date(sub.subscription_ends_at);
+    const diff = Math.ceil((ends - now) / (1000 * 60 * 60 * 24));
+    daysRemaining = Math.max(0, diff);
+
+    if (daysRemaining <= 0) {
+      status = 'expired';
+      daysRemaining = 0;
+    }
+  }
+
+  return {
+    status,
+    days_remaining: daysRemaining,
+    trial_started_at: sub.trial_started_at,
+    trial_ends_at: sub.trial_ends_at,
+    subscription_ends_at: sub.subscription_ends_at
+  };
+}
+
+/**
+ * Add days to subscription
+ */
+async function addSubscriptionDays(userId, days) {
+  const db = getSupabase();
+
+  const { data: sub } = await db
+    .from('user_subscriptions')
+    .select('*')
+    .eq('user_id', userId)
+    .single();
+
+  if (!sub) {
+    // Create new active subscription
+    const endsAt = new Date();
+    endsAt.setDate(endsAt.getDate() + days);
+
+    await db.from('user_subscriptions').insert({
+      user_id: userId,
+      status: 'active',
+      subscription_ends_at: endsAt.toISOString()
+    });
+    return true;
+  }
+
+  let newEndsAt;
+  if (sub.status === 'active' && sub.subscription_ends_at) {
+    const currentEnds = new Date(sub.subscription_ends_at);
+    if (currentEnds > now) {
+      // Add to existing active subscription
+      currentEnds.setDate(currentEnds.getDate() + days);
+      newEndsAt = currentEnds;
+    } else {
+      // Start fresh from now
+      newEndsAt = new Date();
+      newEndsAt.setDate(newEndsAt.getDate() + days);
+    }
+  } else {
+    // Start from now
+    newEndsAt = new Date();
+    newEndsAt.setDate(newEndsAt.getDate() + days);
+  }
+
+  const { error } = await db
+    .from('user_subscriptions')
+    .update({
+      status: 'active',
+      subscription_ends_at: newEndsAt.toISOString(),
+      updated_at: new Date().toISOString()
+    })
+    .eq('user_id', userId);
+
+  if (error) throw error;
+  return true;
+}
+
+/**
+ * Record a payment
+ */
+async function recordPayment(userId, txHash, network, amountToken, amountUsd, daysToAdd = 30) {
+  const db = getSupabase();
+
+  const { error } = await db
     .from('user_payments')
     .insert({
       user_id: userId,
       tx_hash: txHash,
-      network,
+      network: network,
       amount_token: amountToken,
       amount_usd: amountUsd,
-      days_added: 30,
+      days_added: daysToAdd,
       verified: true,
       verified_at: new Date().toISOString()
     });
 
   if (error) {
-    console.error('[subscription] recordPayment error:', error.message);
-    return false;
+    // Duplicate tx_hash - already used
+    if (error.code === '23505') return false;
+    throw error;
   }
   return true;
 }
@@ -226,42 +265,28 @@ async function recordPayment(userId, txHash, network, amountToken, amountUsd) {
  * Check if tx hash was already used
  */
 async function isTxHashUsed(txHash) {
-  const { data } = await supabase
+  const db = getSupabase();
+  const { data } = await db
     .from('user_payments')
     .select('id')
     .eq('tx_hash', txHash)
     .single();
-  
   return !!data;
 }
 
-/**
- * Get FLOWER price and calculate subscription cost
- */
-async function getSubscriptionCost() {
-  const price = await getFlowerPrice();
-  if (!price) return null;
-  
-  const flowerAmount = USD_PER_MONTH / price;
-  return {
-    usd: USD_PER_MONTH,
-    flower_price_usd: price,
-    flower_amount: Math.ceil(flowerAmount)
-  };
-}
+const PAYMENT_ADDRESS = process.env.FLOWER_PAYMENT_ADDRESS || '0xbeA7Aa84316661BBC3963e2c5276d2Cd952D7806';
 
 module.exports = {
-  getFlowerPrice,
-  getFlowerAmountForSubscription,
-  hasActiveSubscription,
-  getSubscriptionStatus,
   ensureSubscription,
+  getSubscriptionStatus,
+  getSubscriptionCost,
+  getFlowerPrice,
   addSubscriptionDays,
   recordPayment,
   isTxHashUsed,
-  getSubscriptionCost,
-  FLOWER_CONTRACT_BASE,
-  FLOWER_CONTRACT_RONIN,
+  connectWallet,
+  getUserWallet,
   PAYMENT_ADDRESS,
-  TRIAL_DAYS
+  DAYS_PER_SUBSCRIPTION,
+  SUBSCRIPTION_USD
 };
