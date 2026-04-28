@@ -95,9 +95,6 @@ async function checkExpiringSubscriptions() {
     }
   } catch (e) {
     console.error('Expiry check error:', e.message);
-    if (process.env.BETTERSTACK_TOKEN) {
-      logger.error('Expiry check failed', { error: e.message, stack: e.stack });
-    }
   }
 }
 
@@ -130,10 +127,7 @@ router.get('/fetch-prices', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Cron error:', error.message);
-    if (process.env.BETTERSTACK_TOKEN) {
-      logger.error('Cron fetch-prices failed', { error: error.message, stack: error.stack });
-    }
+    console.error('Cron fetch-prices error:', error.message);
     res.status(500).json({
       success: false,
       error: error.message,
