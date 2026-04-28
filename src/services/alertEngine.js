@@ -50,10 +50,10 @@ async function checkAlerts() {
   console.log('[AlertEngine] Checking alerts after price fetch...');
 
   try {
-    // Get all active alerts with user info
+    // Get all active alerts (simple query, no joins)
     const { data: alerts, error } = await supabase
       .from('user_alerts')
-      .select('*, user_subscriptions:user_id(ntfy_enabled, ntfy_graph_enabled)')
+      .select('*')
       .eq('enabled', true);
 
     if (error) throw error;
