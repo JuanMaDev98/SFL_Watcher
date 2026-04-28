@@ -627,13 +627,14 @@ async function processPay(chatId) {
       return;
     }
 
-    await sendTelegramAwait(chatId,
-      '🔍 <b>Searching for payment...</b>\n\n' +
-      `Looking for transfers from:\n<code>${userWallet}</code>\n\n' +
-      `To: ${PAYMENT_ADDRESS}\n` +
-      `Amount: ~${cost.flower_amount} FLOWER\n\n` +
-      `This may take a few seconds...'
-    );
+    const searchMsg = [
+      '🔍 <b>Searching for payment...</b>\n\n',
+      'From: ' + userWallet + '\n',
+      'To: ' + PAYMENT_ADDRESS + '\n',
+      'Amount: ~' + cost.flower_amount + ' FLOWER\n\n',
+      'This may take a few seconds...'
+    ].join('');
+    await sendTelegramAwait(chatId, searchMsg);
 
     // Search for payment from user's wallet to payment address
     const result = await verifyWalletPayment(userWallet, cost.flower_amount);
