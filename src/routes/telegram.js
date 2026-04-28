@@ -631,7 +631,7 @@ async function processPay(chatId) {
       '🔍 <b>Searching for payment...</b>\n\n' +
       `Looking for transfers from:\n<code>${userWallet}</code>\n\n' +
       `To: ${PAYMENT_ADDRESS}\n` +
-      `Amount: ~${cost.flower_amount} FLOWER\n\n' +
+      `Amount: ~${cost.flower_amount} FLOWER\n\n` +
       `This may take a few seconds...'
     );
 
