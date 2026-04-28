@@ -30,7 +30,14 @@ async function sendTelegram(chatId, text) {
  */
 async function checkExpiringSubscriptions() {
   try {
-    const { supabase } = require('../services/supabase');
+    // Check if supabase module exists (not implemented yet)
+    let supabase;
+    try {
+      ({ supabase } = require('../services/supabase'));
+    } catch (e) {
+      // Supabase not configured yet, skip expiry check
+      return;
+    }
     
     // Get all users with active subscriptions
     const { data: users, error } = await supabase
@@ -113,7 +120,11 @@ router.get('/fetch-prices', async (req, res) => {
 
     // Check alerts after fetching
     if (result.length > 0) {
-      await checkAlerts();
+      try {
+        await checkAlerts();
+      } catch (e) {
+        console.error('[AlertEngine] Error:', e.message);
+      }
     }
 
     // Check for expiring subscriptions and notify users
