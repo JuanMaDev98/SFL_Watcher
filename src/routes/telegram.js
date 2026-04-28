@@ -545,6 +545,7 @@ async function processSetAllAlerts(chatId, input) {
           .insert({
             user_id: chatId,
             resource: resource,
+            alert_type: 'dual',
             threshold_high: thresholdHigh,
             threshold_low: thresholdLow,
             enabled: true,
