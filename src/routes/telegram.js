@@ -77,9 +77,40 @@ async function sendPhoto(chatId, photoUrl, caption) {
 // ============================================
 // SUBSCRIPTION GATING
 // ============================================
-const { getSubscriptionStatus, getUserWallet } = require('../services/subscriptionService');
+const { getSubscriptionStatus, getUserWallet, ensureSubscription } = require('../services/subscriptionService');
 
 async function checkSubscription(chatId) {
+  // First: ensure user has a subscription record (creates trial if new)
+  await ensureSubscription(chatId.toString());
+  
+  // Check subscription status
+  const sub = await getSubscriptionStatus(chatId.toString());
+  
+  // Trial users can use everything without wallet
+  if (sub.status === 'trial') {
+    return null; // Allow access
+  }
+  
+  // Trial expired: wallet + payment required
+  if (sub.status === 'trial_expired') {
+    return 'Wallet Required:
+
+Your 7-day trial has ended.
+Connect wallet to subscribe:
+/connectwallet <your_address>
+
+Example: /connectwallet 0x742d35Cc6634C0532925a3b844Bc9e7595f1d687';
+  }
+  
+  // Expired subscription: needs payment
+  if (sub.status === 'expired') {
+    return 'Subscription Expired:
+
+Your subscription has ended.
+Extend: /subscribe';
+  }
+  
+  // Active subscription: check wallet exists
   const wallet = await getUserWallet(chatId.toString());
   if (!wallet) {
     return 'Wallet Required:
@@ -89,24 +120,8 @@ Connect your wallet to use the bot:
 
 Example: /connectwallet 0x742d35Cc6634C0532925a3b844Bc9e7595f1d687';
   }
-
-  const sub = await getSubscriptionStatus(chatId.toString());
   
-  if (sub.status === 'expired' || sub.status === 'trial_expired') {
-    return 'Subscription Expired:
-
-Your trial/subscription has ended.
-Extend: /subscribe';
-  }
-
-  if (sub.status === 'new') {
-    return 'Wallet Required:
-
-Connect your wallet to activate your trial:
-/connectwallet <your_address>';
-  }
-
-  return null;
+  return null; // OK - user is subscribed with wallet
 }
 
 
