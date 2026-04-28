@@ -25,7 +25,7 @@ function generateChartDataUrl(resource, history) {
   const minIdx = prices.indexOf(minPrice);
   const maxIdx = prices.indexOf(maxPrice);
 
-  // Build chart config
+  // Build chart config with MIN/MAX triangle markers
   const chartConfig = {
     type: 'line',
     data: {
@@ -56,6 +56,26 @@ function generateChartDataUrl(resource, history) {
         fill: false,
         tension: 0,
         pointRadius: 0
+      }, {
+        // MIN marker - triangle down
+        label: 'MIN',
+        data: prices.map((p, i) => i === minIdx ? p : null),
+        borderColor: '#1565c0',
+        backgroundColor: '#1565c0',
+        pointRadius: 0,
+        pointStyle: 'triangle',
+        showLine: false,
+        fill: false
+      }, {
+        // MAX marker - triangle up  
+        label: 'MAX',
+        data: prices.map((p, i) => i === maxIdx ? p : null),
+        borderColor: '#e65100',
+        backgroundColor: '#e65100',
+        pointRadius: 0,
+        pointStyle: 'triangle',
+        showLine: false,
+        fill: false
       }]
     },
     options: {
