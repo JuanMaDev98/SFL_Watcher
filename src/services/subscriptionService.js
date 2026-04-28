@@ -276,6 +276,8 @@ async function isTxHashUsed(txHash) {
 
 const PAYMENT_ADDRESS = process.env.FLOWER_PAYMENT_ADDRESS || '0xbeA7Aa84316661BBC3963e2c5276d2Cd952D7806';
 
+const { verifyWalletPayment } = require('./paymentVerifier');
+
 module.exports = {
   ensureSubscription,
   getSubscriptionStatus,
@@ -286,6 +288,7 @@ module.exports = {
   isTxHashUsed,
   connectWallet,
   getUserWallet,
+  verifyWalletPayment,
   PAYMENT_ADDRESS,
   DAYS_PER_SUBSCRIPTION,
   SUBSCRIPTION_USD
