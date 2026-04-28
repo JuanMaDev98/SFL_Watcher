@@ -169,6 +169,13 @@ router.post('/webhook', async (req, res) => {
     const resource = parts.length > 1 ? parts[1].toLowerCase() : null;
     await processRemoveAlert(chatId, resource);
   }
+  else if (command === '/setall') {
+    const rest = parts.slice(1).join(' ');
+    await processSetAllAlerts(chatId, rest);
+  }
+  else if (command === '/removeallalerts') {
+    await processRemoveAllAlerts(chatId);
+  }
   else if (command === '/connectwallet') {
     const wallet = parts.length > 1 ? parts[1].trim() : null;
     await processConnectWallet(chatId, wallet);
@@ -452,6 +459,119 @@ async function processRemoveAlert(chatId, resource) {
 
   } catch (error) {
     console.error('[removealert] error:', error.message);
+    await sendTelegramAwait(chatId, `Error: ${error.message}`);
+  }
+}
+
+async function processSetAllAlerts(chatId, input) {
+  const supabase = require('../lib/supabase');
+
+  try {
+    const tokens = input.trim().split(/\s+/);
+    if (tokens.length < 2) {
+      await sendTelegramAwait(chatId,
+        '❌ Usage: /setall &lt;high%&gt; &lt;low%&gt;\n' +
+        'Example: /setall +20 -15\n' +
+        '→ Set alerts for ALL resources when +20% above avg OR -15% below avg\n\n' +
+        'This will create/update alerts for ALL 60 resources.'
+      );
+      return;
+    }
+
+    const thresholdHigh = parseFloat(tokens[0].replace(',', '.'));
+    const thresholdLow = parseFloat(tokens[1].replace(',', '.'));
+
+    if (isNaN(thresholdHigh) || isNaN(thresholdLow)) {
+      await sendTelegramAwait(chatId, '❌ Invalid percentages. Use numbers like +20 or -15');
+      return;
+    }
+
+    // Get all available resources
+    const { data: resources, error: rError } = await supabase
+      .from('price_snapshots')
+      .select('resource')
+      .order('resource')
+      .limit(60);
+
+    if (rError) throw rError;
+
+    const uniqueResources = [...new Set(resources.map(r => r.resource))];
+    const now = new Date().toISOString();
+    let created = 0;
+    let updated = 0;
+
+    for (const resource of uniqueResources) {
+      // Check if alert exists
+      const { data: existing } = await supabase
+        .from('user_alerts')
+        .select('id')
+        .eq('user_id', chatId)
+        .eq('resource', resource)
+        .eq('enabled', true)
+        .single();
+
+      if (existing) {
+        // Update existing
+        await supabase
+          .from('user_alerts')
+          .update({
+            threshold_high: thresholdHigh,
+            threshold_low: thresholdLow,
+            updated_at: now,
+            last_notified_at: null
+          })
+          .eq('id', existing.id);
+        updated++;
+      } else {
+        // Create new
+        await supabase
+          .from('user_alerts')
+          .insert({
+            user_id: chatId,
+            resource: resource,
+            threshold_high: thresholdHigh,
+            threshold_low: thresholdLow,
+            enabled: true,
+            created_at: now,
+            updated_at: now
+          });
+        created++;
+      }
+    }
+
+    const highSign = thresholdHigh >= 0 ? '+' : '';
+    const lowSign = thresholdLow >= 0 ? '+' : '';
+    await sendTelegramAwait(chatId,
+      `✅ <b>Mass Alerts Set</b>\n\n` +
+      `Resources: <b>${uniqueResources.length}</b>\n` +
+      `Created: <b>${created}</b> new alerts\n` +
+      `Updated: <b>${updated}</b> existing alerts\n\n` +
+      `Thresholds: ▲ ${highSign}${thresholdHigh}% | ▼ ${lowSign}${thresholdLow}%\n\n` +
+      `Use /alerts to view your alerts or /removealert &lt;resource&gt; to remove one.`
+    );
+
+  } catch (error) {
+    console.error('[setall] error:', error.message);
+    await sendTelegramAwait(chatId, `Error: ${error.message}`);
+  }
+}
+
+async function processRemoveAllAlerts(chatId) {
+  const supabase = require('../lib/supabase');
+
+  try {
+    const { data, error } = await supabase
+      .from('user_alerts')
+      .update({ enabled: false, updated_at: new Date().toISOString() })
+      .eq('user_id', chatId)
+      .eq('enabled', true);
+
+    if (error) throw error;
+
+    await sendTelegramAwait(chatId, '🗑️ <b>All Alerts Removed</b>\n\nAll your price alerts have been deleted.');
+
+  } catch (error) {
+    console.error('[removeallalerts] error:', error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
   }
 }
