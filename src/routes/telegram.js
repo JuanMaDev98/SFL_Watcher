@@ -775,15 +775,26 @@ async function processPay(chatId) {
     const result = await verifyWalletPayment(userWallet, cost.flower_amount);
 
     if (!result.success) {
-      await sendTelegramAwait(chatId,
-        `❌ <b>Payment Not Found</b>\n\n` +
-        `No transfer found from your wallet to the payment address.\n\n` +
-        `Make sure you:\n` +
-        `1. Sent FLOWER from YOUR wallet (${userWallet})\n` +
-        `2. Sent to: ${PAYMENT_ADDRESS}\n` +
-        `3. Amount: ~${cost.flower_amount} FLOWER\n` +
-        `4. Wait a few seconds after sending`
-      );
+      if (result.partialPayment) {
+        const sent = result.partialPayment.amount.toFixed(4);
+        const needed = cost.flower_amount.toFixed(4);
+        await sendTelegramAwait(chatId,
+          `❌ <b>Insufficient Payment</b>\n\n` +
+          `You sent: <b>${sent} FLOWER</b>\n` +
+          `Required: <b>~${needed} FLOWER</b>\n\n` +
+          `Please send at least <b>${needed} FLOWER</b> and try again.`
+        );
+      } else {
+        await sendTelegramAwait(chatId,
+          `❌ <b>Payment Not Found</b>\n\n` +
+          `No transfer found from your wallet to the payment address.\n\n` +
+          `Make sure you:\n` +
+          `1. Sent FLOWER from YOUR wallet (${userWallet})\n` +
+          `2. Sent to: ${PAYMENT_ADDRESS}\n` +
+          `3. Amount: ~${cost.flower_amount} FLOWER\n` +
+          `4. Wait a few seconds after sending`
+        );
+      }
       return;
     }
 

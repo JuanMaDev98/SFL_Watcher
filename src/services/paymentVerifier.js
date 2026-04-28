@@ -98,6 +98,7 @@ async function getTransferReceipt(network, txHash) {
  */
 async function verifyWalletPayment(userWalletAddress, requiredAmountFlower, networks = ['base', 'ronin']) {
   const requiredAmountWei = BigInt(Math.ceil(requiredAmountFlower * 10 ** FLOWER_DECIMALS));
+  let partialInfo = null;
 
   for (const network of networks) {
     try {
@@ -114,6 +115,8 @@ async function verifyWalletPayment(userWalletAddress, requiredAmountFlower, netw
         if (!amountHex || amountHex === '0x') continue;
 
         const amount = BigInt(amountHex);
+        const amountFlower = Number(amount) / 10 ** FLOWER_DECIMALS;
+
         if (amount >= requiredAmountWei) {
           // Found a valid transfer
           // Get tx hash from log's transactionHash
@@ -126,11 +129,21 @@ async function verifyWalletPayment(userWalletAddress, requiredAmountFlower, netw
           return {
             success: true,
             txHash,
-            amount: Number(amount) / 10 ** FLOWER_DECIMALS,
+            amount: amountFlower,
             network,
             blockNumber: parseInt(blockNum, 16),
             logIndex: parseInt(logIndex, 16)
           };
+        } else {
+          // Found a transfer but insufficient amount
+          // Keep track of the highest insufficient payment
+          if (!partialInfo || amountFlower > partialInfo.amount) {
+            partialInfo = {
+              amount: amountFlower,
+              network,
+              txHash: log.transactionHash
+            };
+          }
         }
       }
     } catch (e) {
@@ -139,7 +152,11 @@ async function verifyWalletPayment(userWalletAddress, requiredAmountFlower, netw
     }
   }
 
-  return { success: false, error: 'No matching payment found' };
+  return { 
+    success: false, 
+    error: 'No matching payment found',
+    partialPayment: partialInfo || null
+  };
 }
 
 /**
