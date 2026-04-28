@@ -946,8 +946,8 @@ async function processNtfyGraph(chatId, parts) {
 }
 
 async function processNtfyStatus(chatId) {
-  const { getNtfySettings, getUserNtfyTopic } = require('../services/subscriptionService');
-  const { getNtfyInstructions } = require('../services/ntfyService');
+  const { getNtfySettings } = require('../services/subscriptionService');
+  const { getUserNtfyTopic, getNtfyInstructions } = require('../services/ntfyService');
   
   // First ensure subscription exists
   await require('../services/subscriptionService').ensureSubscription(chatId.toString());
