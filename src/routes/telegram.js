@@ -634,7 +634,8 @@ async function processSetAllAlerts(chatId, input) {
             threshold_high: thresholdHigh,
             threshold_low: thresholdLow,
             updated_at: now,
-            last_notified_at: null
+            last_notified_rise_at: null,
+            last_notified_fall_at: null
           })
           .eq('id', id)
       );
