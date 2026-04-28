@@ -91,46 +91,61 @@ router.post('/webhook', async (req, res) => {
   if (command === '/start') {
     await sendTelegramAwait(chatId,
       '🦉 <b>SFL Watcher</b>\n\n' +
-      '/price &lt;resource&gt; - Current price\n' +
-      '/priceall - All prices\n' +
-      '/graph &lt;resource&gt; - Chart\n' +
-      '/list - All resources\n' +
-      '/alerts - View your alerts\n' +
-      '/alert &lt;resource&gt; &lt;high%&gt; &lt;low%&gt; - Set/update alert\n' +
-      '/removealert &lt;resource&gt; - Remove alert\n\n' +
-      '<b>💳 Subscription:</b>\n' +
-      '/connectwallet - Link your wallet\n' +
-      '/subscribe - Subscribe ($1 USD/month)\n' +
-      '/status - Check subscription'
+      '📊 <b>Prices &amp; Charts:</b>\n' +
+      '/price &lt;resource&gt; • /priceall • /graph &lt;resource&gt; • /list\n\n' +
+      '🔔 <b>Alerts:</b>\n' +
+      '/alerts • /alert &lt;res&gt; &lt;high%&gt; &lt;low%&gt; • /setall &lt;high%&gt; &lt;low%&gt;\n' +
+      '/removealert &lt;resource&gt; • /removeallalerts\n\n' +
+      '💳 <b>Subscription:</b>\n' +
+      '/connectwallet • /subscribe • /status • /pay\n\n' +
+      'Type /help for more details.'
     );
   }
   else if (command === '/help') {
     await sendTelegramAwait(chatId,
-      '📊 <b>Commands:</b>\n\n' +
-      '<b>Price Info:</b>\n' +
-      '/price &lt;resource&gt; - Price info\n' +
-      '/priceall - All prices\n' +
-      '/graph &lt;resource&gt; - Chart\n' +
-      '/list - 60 resources\n\n' +
-      '<b>Alerts (price vs average):</b>\n' +
-      '/alerts - View your alerts\n' +
-      '/alert &lt;resource&gt; &lt;high%&gt; &lt;low%&gt; - Set/update\n' +
-      '/removealert &lt;resource&gt; - Remove alert\n\n' +
-      '<b>Alert examples:</b>\n' +
-      '/alert yam +10 -15\n' +
-      '→ alerts when yam is +10% above avg OR -15% below avg\n\n' +
-      '⚠️ /alert replaces any existing alert for that resource.\n\n' +
-      '<b>Subscription ($1 USD/month):</b>\n' +
+      '📊 <b>SFL Watcher - Help</b>\n\n' +
+
+      '━━━━━━━━━━━━━━━━━━━━\n' +
+      '💳 <b>HOW TO SUBSCRIBE</b>\n' +
+      '━━━━━━━━━━━━━━━━━━━━\n\n' +
+      '1️⃣ /connectwallet &lt;your_wallet_address&gt;\n' +
+      '   Link your wallet to your account\n\n' +
+      '2️⃣ /subscribe\n' +
+      '   Get payment address &amp; amount in FLOWER\n\n' +
+      '3️⃣ Send FLOWER from YOUR wallet to the address shown\n\n' +
+      '4️⃣ /pay\n' +
+      '   Bot verifies payment and activates 30 days\n\n' +
+      '💰 Cost: <b>$1 USD / 30 days</b>\n' +
+      '⚠️ You MUST send from your linked wallet\n\n' +
+
+      '━━━━━━━━━━━━━━━━━━━━\n' +
+      '📈 <b>PRICE COMMANDS</b>\n' +
+      '━━━━━━━━━━━━━━━━━━━━\n\n' +
+      '/price &lt;resource&gt; - Price info (e.g. /price wood)\n' +
+      '/priceall - All 60 resources prices\n' +
+      '/graph &lt;resource&gt; - Chart image (e.g. /graph stone)\n' +
+      '/list - List all 60 resources\n\n' +
+
+      '━━━━━━━━━━━━━━━━━━━━\n' +
+      '🔔 <b>ALERT COMMANDS</b>\n' +
+      '━━━━━━━━━━━━━━━━━━━━\n\n' +
+      '/alerts - View all your active alerts\n' +
+      '/alert &lt;res&gt; &lt;high%&gt; &lt;low%&gt; - Set alert for ONE resource\n' +
+      '/setall &lt;high%&gt; &lt;low%&gt; - Set alerts for ALL resources\n' +
+      '/removealert &lt;resource&gt; - Remove one resource alert\n' +
+      '/removeallalerts - Remove ALL alerts\n\n' +
+      '<b>Examples:</b>\n' +
+      '/alert yam +10 -15 → yam at +10% OR -15% vs avg\n' +
+      '/setall +20 -15 → ALL resources at +20% OR -15%\n\n' +
+
+      '━━━━━━━━━━━━━━━━━━━━\n' +
+      '👛 <b>WALLET COMMANDS</b>\n' +
+      '━━━━━━━━━━━━━━━━━━━━\n\n' +
       '/connectwallet &lt;address&gt; - Link your wallet\n' +
       '/wallet - See your linked wallet\n' +
-      '/subscribe - Subscribe / extend\n' +
-      '/pay - Verify payment after sending FLOWER\n\n' +
-      '<b>💡 How it works:</b>\n' +
-      '1. /connectwallet &lt;your_address&gt;\n' +
-      '2. /subscribe to get payment amount\n' +
-      '3. Send FLOWER from YOUR wallet to the address shown\n' +
-      '4. /pay to verify and activate\n\n' +
-      '<b>⚠️ Important:</b> You MUST send from your linked wallet.'
+      '/status - Days remaining &amp; subscription status\n' +
+      '/subscribe - Get payment info\n' +
+      '/pay - Verify FLOWER payment\n'
     );
   }
   else if (command === '/list') {
