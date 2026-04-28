@@ -94,7 +94,7 @@ router.post('/webhook', async (req, res) => {
       '📊 <b>Prices &amp; Charts:</b>\n' +
       '/price &lt;resource&gt; • /priceall • /graph &lt;resource&gt; • /list\n\n' +
       '🔔 <b>Alerts:</b>\n' +
-      '/alerts • /alert &lt;res&gt; &lt;high%&gt; &lt;low%&gt; • /setall &lt;high%&gt; &lt;low%&gt;\n' +
+      '/alerts • /alert &lt;res&gt; &lt;rise%&gt; &lt;fall%&gt; • /alertall &lt;rise%&gt; &lt;fall%&gt;\n' +
       '/removealert &lt;resource&gt; • /removeallalerts\n\n' +
       '💳 <b>Subscription:</b>\n' +
       '/connectwallet • /subscribe • /status • /pay\n\n' +
@@ -131,12 +131,14 @@ router.post('/webhook', async (req, res) => {
       '━━━━━━━━━━━━━━━━━━━━\n\n' +
       '/alerts - View all your active alerts\n' +
       '/alert &lt;res&gt; &lt;high%&gt; &lt;low%&gt; - Set alert for ONE resource\n' +
-      '/setall &lt;high%&gt; &lt;low%&gt; - Set alerts for ALL resources\n' +
+      '/alertall &lt;high%&gt; &lt;low%&gt; - Set alerts for ALL resources\n' +
+      '/alertall &lt;high%&gt; &lt;low%&gt; keep - Same but skips existing alerts\n' +
       '/removealert &lt;resource&gt; - Remove one resource alert\n' +
       '/removeallalerts - Remove ALL alerts\n\n' +
       '<b>Examples:</b>\n' +
-      '/alert yam +10 -15 → yam at +10% OR -15% vs avg\n' +
-      '/setall +20 -15 → ALL resources at +20% OR -15%\n\n' +
+      '/alert yam 10 15 → yam at +10% (rise) OR -15% (fall)\n' +
+      '/alertall 20 15 → ALL resources at +20% OR -15%\n' +
+      '/alertall 20 15 keep → Same, keeps existing alerts\n\n' +
 
       '━━━━━━━━━━━━━━━━━━━━\n' +
       '👛 <b>WALLET COMMANDS</b>\n' +
@@ -184,7 +186,7 @@ router.post('/webhook', async (req, res) => {
     const resource = parts.length > 1 ? parts[1].toLowerCase() : null;
     await processRemoveAlert(chatId, resource);
   }
-  else if (command === '/setall') {
+  else if (command === '/alertall' || command === '/setall') {
     const rest = parts.slice(1).join(' ');
     await processSetAllAlerts(chatId, rest);
   }
@@ -379,8 +381,9 @@ async function processAlertConfig(chatId, input, isListMode) {
     if (tokens.length < 3) {
       await sendTelegramAwait(chatId,
         '❌ Usage: /alert &lt;resource&gt; &lt;high%&gt; &lt;low%&gt;\n' +
-        'Example: /alert yam +10 -15\n' +
-        '(alerts when yam is +10% above avg OR -15% below avg)'
+        'Example: /alert yam 10 15\n' +
+        '→ Alert when yam is +10% above avg OR -15% below avg\n' +
+        '(First number = rise %, Second number = fall % - no signs needed)'
       );
       return;
     }
@@ -390,10 +393,11 @@ async function processAlertConfig(chatId, input, isListMode) {
     const rawLow = parseFloat(tokens[2]);
 
     if (isNaN(rawHigh) || isNaN(rawLow)) {
-      await sendTelegramAwait(chatId, '❌ High and low must be numbers.\nExample: /alert yam +10 -15');
+      await sendTelegramAwait(chatId, '❌ Usage: /alert &lt;resource&gt; &lt;high%&gt; &lt;low%&gt;\nExample: /alert yam 10 15');
       return;
     }
 
+    // First number = rise threshold (positive), second = fall threshold (will be negated)
     const thresholdHigh = Math.abs(rawHigh);
     const thresholdLow = -Math.abs(rawLow);
 
@@ -435,15 +439,11 @@ async function processAlertConfig(chatId, input, isListMode) {
       updated = false;
     }
 
-    const highSign = thresholdHigh >= 0 ? '+' : '';
-    const lowSign = thresholdLow >= 0 ? '+' : '';
-    const action = updated ? 'Updated (replaced old alert)' : 'Created';
+    const action = updated ? 'Updated' : 'Created';
 
     await sendTelegramAwait(chatId,
       `✅ ${action} alert for <b>${resource}</b>\n` +
-      `▲ High threshold: ${highSign}${thresholdHigh}%\n` +
-      `▼ Low threshold: ${lowSign}${thresholdLow}%\n\n` +
-      `⚠️ Replaces any existing alert for ${resource}.\n` +
+      `▲ Rise: +${thresholdHigh}% | ▼ Fall: ${thresholdLow}%\n\n` +
       `You'll be notified when price crosses thresholds.`
     );
 
@@ -485,22 +485,22 @@ async function processSetAllAlerts(chatId, input) {
     const tokens = input.trim().split(/\s+/);
     if (tokens.length < 2) {
       await sendTelegramAwait(chatId,
-        '❌ Usage: /setall &lt;high%&gt; &lt;low%&gt; [keep]\n' +
-        'Example: /setall +20 -15\n' +
-        '→ Set alerts for ALL resources when +20% above avg OR -15% below avg\n\n' +
-        'Add "keep" at the end to preserve existing alerts:\n' +
-        '/setall +20 -15 keep\n' +
-        '→ Same as above, but skips resources that already have alerts.'
+        '❌ Usage: /alertall &lt;high%&gt; &lt;low%&gt; [keep]\n' +
+        'Example: /alertall 20 15\n' +
+        '→ Set alerts for ALL 60 resources at +20% (rise) OR -15% (fall)\n\n' +
+        'Add "keep" to skip resources that already have alerts:\n' +
+        '/alertall 20 15 keep\n' +
+        '→ Same as above, but preserves existing alerts.'
       );
       return;
     }
 
-    const thresholdHigh = parseFloat(tokens[0].replace(',', '.'));
-    const thresholdLow = parseFloat(tokens[1].replace(',', '.'));
+    const thresholdHigh = Math.abs(parseFloat(tokens[0].replace(',', '.')));
+    const thresholdLow = -Math.abs(parseFloat(tokens[1].replace(',', '.')));
     const keepExisting = tokens[2]?.toLowerCase() === 'keep';
 
     if (isNaN(thresholdHigh) || isNaN(thresholdLow)) {
-      await sendTelegramAwait(chatId, '❌ Invalid percentages. Use numbers like +20 or -15');
+      await sendTelegramAwait(chatId, '❌ Invalid percentages. Use numbers like 20 or 15');
       return;
     }
 
@@ -508,27 +508,35 @@ async function processSetAllAlerts(chatId, input) {
     const allResources = ['apple','artichoke','banana','barley','beetroot','blueberry','broccoli','bumpkin emblem','cabbage','carrot','cauliflower','celestine','chewed bone','corn','crimstone','dewberry','duskberry','egg','eggplant','feather','frost pebble','goblin emblem','gold','grape','heart leaf','honey','iron','kale','leather','lemon','lunara','merino wool','milk','moonfur','nightshade emblem','obsidian','olive','onion','orange','parsnip','pepper','potato','pumpkin','radish','rhubarb','ribbon','rice','ruffroot','soybean','stone','sunflorian emblem','sunflower','tomato','turnip','wheat','wild grass','wood','wool','yam','zucchini'];
 
     const now = new Date().toISOString();
-    let created = 0;
-    let skipped = 0;
-    let updated = 0;
+
+    // OPTIMIZATION: Batch query - get all existing alerts for this user in ONE query
+    const { data: allExisting } = await supabase
+      .from('user_alerts')
+      .select('id, resource')
+      .eq('user_id', chatId)
+      .eq('enabled', true);
+
+    const existingMap = new Map();
+    (allExisting || []).forEach(a => existingMap.set(a.resource, a.id));
+
+    // Separate resources into to-update and to-insert
+    const toUpdate = [];
+    const toInsert = [];
 
     for (const resource of allResources) {
-      // Check if alert exists
-      const { data: existing } = await supabase
-        .from('user_alerts')
-        .select('id')
-        .eq('user_id', chatId)
-        .eq('resource', resource)
-        .eq('enabled', true)
-        .single();
-
-      if (existing) {
-        if (keepExisting) {
-          skipped++;
-          continue;
+      if (existingMap.has(resource)) {
+        if (!keepExisting) {
+          toUpdate.push({ id: existingMap.get(resource), resource });
         }
-        // Update existing
-        await supabase
+      } else {
+        toInsert.push(resource);
+      }
+    }
+
+    // Batch update existing alerts
+    if (toUpdate.length > 0) {
+      const updatePromises = toUpdate.map(({ id }) =>
+        supabase
           .from('user_alerts')
           .update({
             threshold_high: thresholdHigh,
@@ -536,43 +544,43 @@ async function processSetAllAlerts(chatId, input) {
             updated_at: now,
             last_notified_at: null
           })
-          .eq('id', existing.id);
-        updated++;
-      } else {
-        // Create new
-        await supabase
-          .from('user_alerts')
-          .insert({
-            user_id: chatId,
-            resource: resource,
-            alert_type: 'dual',
-            threshold_high: thresholdHigh,
-            threshold_low: thresholdLow,
-            enabled: true,
-            created_at: now,
-            updated_at: now
-          });
-        created++;
-      }
+          .eq('id', id)
+      );
+      await Promise.all(updatePromises);
     }
 
-    const highSign = thresholdHigh >= 0 ? '+' : '';
-    const lowSign = thresholdLow >= 0 ? '+' : '';
-    let response = '✅ <b>Mass Alerts Set</b>\n\n';
-    response += `Resources: <b>${allResources.length}</b>\n`;
-    response += `Created: <b>${created}</b> new alerts\n`;
-    if (keepExisting) {
-      response += `Skipped: <b>${skipped}</b> (existing)\n`;
-    } else {
-      response += `Updated: <b>${updated}</b> existing alerts\n`;
+    // Batch insert new alerts (in chunks of 50 to avoid payload limits)
+    const chunkSize = 50;
+    for (let i = 0; i < toInsert.length; i += chunkSize) {
+      const chunk = toInsert.slice(i, i + chunkSize);
+      const insertData = chunk.map(resource => ({
+        user_id: chatId,
+        resource,
+        alert_type: 'dual',
+        threshold_high: thresholdHigh,
+        threshold_low: thresholdLow,
+        enabled: true,
+        created_at: now,
+        updated_at: now
+      }));
+      await supabase.from('user_alerts').insert(insertData);
     }
-    response += `Thresholds: ▲ ${highSign}${thresholdHigh}% | ▼ ${lowSign}${thresholdLow}%\n\n`;
-    response += `Use /alerts to view or /removealert &lt;resource&gt; to remove one.`;
+
+    const created = toInsert.length;
+    const updated = toUpdate.length;
+    const skipped = keepExisting ? allResources.length - created - updated : 0;
+
+    let response = '✅ <b>Alerts Set for All Resources</b>\n\n';
+    response += `Resources: <b>${allResources.length}</b>\n`;
+    response += `Created: <b>${created}</b> | Updated: <b>${updated}</b>`;
+    if (keepExisting) response += ` | Skipped: <b>${skipped}</b>`;
+    response += `\nThresholds: ▲ +${thresholdHigh}% | ▼ ${thresholdLow}%\n\n`;
+    response += `Use /alerts to view your alerts.`;
 
     await sendTelegramAwait(chatId, response);
 
   } catch (error) {
-    console.error('[setall] error:', error.message);
+    console.error('[alertall] error:', error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
   }
 }
