@@ -1,5 +1,5 @@
-import Logtail from '@logtail/js'
+const { Logtail } = require('@logtail/js');
 
-const logger = new Logtail(process.env.BETTERSTACK_TOKEN)
+const logger = new Logtail(process.env.BETTERSTACK_TOKEN);
 
-export default logger
+module.exports = logger;
