@@ -9,6 +9,8 @@ const subscribeRouter = require('./routes/subscribe');
 const cronRouter = require('./routes/cron');
 const telegramRouter = require('./routes/telegram');
 
+const logger = require('./utils/logger');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -31,6 +33,17 @@ app.get('/health', (req, res) => {
 // Error handler
 app.use((err, req, res, next) => {
   console.error('Error:', err);
+  
+  // Log to Better Stack
+  if (process.env.BETTERSTACK_TOKEN) {
+    logger.error('Unhandled error', {
+      error: err.message,
+      stack: err.stack,
+      path: req.path,
+      method: req.method
+    });
+  }
+  
   res.status(500).json({ error: 'Internal server error' });
 });
 

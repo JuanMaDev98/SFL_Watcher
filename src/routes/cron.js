@@ -4,6 +4,8 @@ const { fetchPrices } = require('../services/priceFetcher');
 const { checkAlerts } = require('../services/alertEngine');
 const { getSubscriptionStatus, getUserByChatId } = require('../services/subscriptionService');
 
+const logger = require('../utils/logger');
+
 const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
 const EXPIRY_WARNING_HOURS = 24; // Notify user when subscription expires in <= 24 hours
 
@@ -93,6 +95,9 @@ async function checkExpiringSubscriptions() {
     }
   } catch (e) {
     console.error('Expiry check error:', e.message);
+    if (process.env.BETTERSTACK_TOKEN) {
+      logger.error('Expiry check failed', { error: e.message, stack: e.stack });
+    }
   }
 }
 
@@ -126,6 +131,9 @@ router.get('/fetch-prices', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Cron error:', error.message);
+    if (process.env.BETTERSTACK_TOKEN) {
+      logger.error('Cron fetch-prices failed', { error: error.message, stack: error.stack });
+    }
     res.status(500).json({
       success: false,
       error: error.message,
