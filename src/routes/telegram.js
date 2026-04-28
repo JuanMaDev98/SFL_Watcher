@@ -263,6 +263,11 @@ router.post('/webhook', async (req, res) => {
     if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
     await processSubscribe(chatId);
   }
+  else if (command === '/ntfy') {
+    const blocked = await checkSubscription(chatId);
+    if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
+    await processNtfy(chatId);
+  }
   else if (command === '/status') {
     const blocked = await checkSubscription(chatId);
     if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
@@ -817,6 +822,15 @@ async function processStatus(chatId) {
     console.error('[status] error:', error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
   }
+}
+
+async function processNtfy(chatId) {
+  const { getUserNtfyTopic, getNtfyInstructions } = require('../services/ntfyService');
+  
+  const topic = getUserNtfyTopic(chatId.toString());
+  const instructions = getNtfyInstructions(topic);
+  
+  await sendTelegramAwait(chatId, instructions);
 }
 
 async function processPay(chatId) {
