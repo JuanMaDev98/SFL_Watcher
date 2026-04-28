@@ -170,6 +170,9 @@ async function checkResourceAlerts(resource, alerts) {
  * Send Telegram alert with chart image
  */
 async function sendTelegramAlert(userId, resource, currentPct, stats, thresholdHigh, thresholdLow) {
+  const sign = currentPct > 0 ? '+' : '';
+  const emoji = currentPct >= thresholdHigh ? '🔺' : '🔻';
+
   try {
     // Get history for chart
     const { data: history } = await supabase
@@ -178,9 +181,6 @@ async function sendTelegramAlert(userId, resource, currentPct, stats, thresholdH
       .eq('resource', resource)
       .order('created_at', { ascending: false })
       .limit(30);
-
-    const sign = currentPct > 0 ? '+' : '';
-    const emoji = currentPct >= thresholdHigh ? '🔺' : '🔻';
 
     if (history && history.length >= 2) {
       // Generate and send chart
@@ -197,9 +197,14 @@ async function sendTelegramAlert(userId, resource, currentPct, stats, thresholdH
         `Thresholds: ▲ +${thresholdHigh}% | ▼ ${thresholdLow}%`
       ].join('\n');
 
-      await sendTelegramPhoto(userId, chartDataUrl, caption);
+      const sent = await sendTelegramPhoto(userId, chartDataUrl, caption);
+      if (!sent) {
+        console.error(`[AlertEngine] sendTelegramPhoto failed for ${userId}, falling back to text`);
+        const msg = formatAlertMessage(resource, currentPct, stats, thresholdHigh, thresholdLow);
+        await sendTelegramMessage(userId, msg);
+      }
     } else {
-      // Text only
+      // Not enough history, send text only
       const msg = formatAlertMessage(resource, currentPct, stats, thresholdHigh, thresholdLow);
       await sendTelegramMessage(userId, msg);
     }

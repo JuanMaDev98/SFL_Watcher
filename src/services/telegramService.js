@@ -60,6 +60,9 @@ async function sendTelegramPhoto(chatId, photoDataUrl, caption) {
 
       const resp = await fetch(`${TELEGRAM_API}/sendPhoto`, { method: 'POST', body });
       const data = await resp.json();
+      if (!resp.ok) {
+        console.error(`[Telegram] sendPhoto failed: ${JSON.stringify(data)}`);
+      }
       return resp.ok;
     } else {
       const resp = await fetch(`${TELEGRAM_API}/sendPhoto`, {
