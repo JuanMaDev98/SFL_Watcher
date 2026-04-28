@@ -72,6 +72,45 @@ async function sendPhoto(chatId, photoUrl, caption) {
 }
 
 // ============================================
+
+
+// ============================================
+// SUBSCRIPTION GATING
+// ============================================
+const { getSubscriptionStatus, getUserWallet } = require('../services/subscriptionService');
+
+async function checkSubscription(chatId) {
+  const wallet = await getUserWallet(chatId.toString());
+  if (!wallet) {
+    return 'Wallet Required:
+
+Connect your wallet to use the bot:
+/connectwallet <your_address>
+
+Example: /connectwallet 0x742d35Cc6634C0532925a3b844Bc9e7595f1d687';
+  }
+
+  const sub = await getSubscriptionStatus(chatId.toString());
+  
+  if (sub.status === 'expired' || sub.status === 'trial_expired') {
+    return 'Subscription Expired:
+
+Your trial/subscription has ended.
+Extend: /subscribe';
+  }
+
+  if (sub.status === 'new') {
+    return 'Wallet Required:
+
+Connect your wallet to activate your trial:
+/connectwallet <your_address>';
+  }
+
+  return null;
+}
+
+
+
 // WEBHOOK HANDLER
 // ============================================
 router.post('/webhook', async (req, res) => {
@@ -151,10 +190,14 @@ router.post('/webhook', async (req, res) => {
     );
   }
   else if (command === '/list') {
+    const blocked = await checkSubscription(chatId);
+    if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
     const resources = ['apple','artichoke','banana','barley','beetroot','blueberry','broccoli','bumpkin emblem','cabbage','carrot','cauliflower','celestine','chewed bone','corn','crimstone','dewberry','duskberry','egg','eggplant','feather','frost pebble','goblin emblem','gold','grape','heart leaf','honey','iron','kale','leather','lemon','lunara','merino wool','milk','moonfur','nightshade emblem','obsidian','olive','onion','orange','parsnip','pepper','potato','pumpkin','radish','rhubarb','ribbon','rice','ruffroot','soybean','stone','sunflorian emblem','sunflower','tomato','turnip','wheat','wild grass','wood','wool','yam','zucchini'];
     await sendTelegramAwait(chatId, '📋 <b>60 Resources:</b>\n' + resources.join(', '));
   }
   else if (command === '/price') {
+    const blocked = await checkSubscription(chatId);
+    if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
     const resource = parts.length > 1 ? parts[1].toLowerCase() : null;
     if (!resource) {
       await sendTelegramAwait(chatId, '❌ Usage: /price &lt;resource&gt;\nExample: /price yam');
@@ -164,9 +207,13 @@ router.post('/webhook', async (req, res) => {
     await processPriceSimple(chatId, resource);
   }
   else if (command === '/priceall') {
+    const blocked = await checkSubscription(chatId);
+    if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
     await processAllPrices(chatId);
   }
   else if (command === '/graph' || command === '/graph@sflwatcher_bot') {
+    const blocked = await checkSubscription(chatId);
+    if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
     const resource = parts.length > 1 ? parts[1].toLowerCase() : null;
     if (!resource) {
       await sendTelegramAwait(chatId, '❌ Usage: /graph &lt;resource&gt;\nExample: /graph yam');
@@ -176,21 +223,31 @@ router.post('/webhook', async (req, res) => {
     await processGraph(chatId, resource);
   }
   else if (command === '/debug') {
+    const blocked = await checkSubscription(chatId);
+    if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
     await processDebug(chatId);
   }
   else if (command === '/alert' || command === '/alerts') {
+    const blocked = await checkSubscription(chatId);
+    if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
     const rest = parts.slice(1).join(' ');
     await processAlertConfig(chatId, rest, parts[0] === '/alerts');
   }
   else if (command === '/removealert') {
+    const blocked = await checkSubscription(chatId);
+    if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
     const resource = parts.length > 1 ? parts[1].toLowerCase() : null;
     await processRemoveAlert(chatId, resource);
   }
   else if (command === '/alertall' || command === '/setall') {
+    const blocked = await checkSubscription(chatId);
+    if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
     const rest = parts.slice(1).join(' ');
     await processSetAllAlerts(chatId, rest);
   }
   else if (command === '/removeallalerts') {
+    const blocked = await checkSubscription(chatId);
+    if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
     await processRemoveAllAlerts(chatId);
   }
   else if (command === '/connectwallet') {
@@ -201,12 +258,18 @@ router.post('/webhook', async (req, res) => {
     await processShowWallet(chatId);
   }
   else if (command === '/subscribe') {
+    const blocked = await checkSubscription(chatId);
+    if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
     await processSubscribe(chatId);
   }
   else if (command === '/status') {
+    const blocked = await checkSubscription(chatId);
+    if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
     await processStatus(chatId);
   }
   else if (command === '/pay') {
+    const blocked = await checkSubscription(chatId);
+    if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
     await processPay(chatId);
   }
   else {
