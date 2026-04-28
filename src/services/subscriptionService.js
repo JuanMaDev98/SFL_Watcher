@@ -278,6 +278,37 @@ const PAYMENT_ADDRESS = process.env.FLOWER_PAYMENT_ADDRESS || '0xbeA7Aa84316661B
 
 const { verifyWalletPayment } = require('./paymentVerifier');
 
+/**
+ * Get NTFY settings for a user
+ */
+async function getNtfySettings(userId) {
+  const db = getSupabase();
+  const { data } = await db
+    .from('user_subscriptions')
+    .select('ntfy_enabled, ntfy_graph_enabled')
+    .eq('user_id', userId)
+    .single();
+  return {
+    ntfyEnabled: data?.ntfy_enabled || false,
+    ntfyGraphEnabled: data?.ntfy_graph_enabled !== undefined ? data.ntfy_graph_enabled : true
+  };
+}
+
+/**
+ * Update NTFY settings
+ */
+async function updateNtfySettings(userId, settings) {
+  const db = getSupabase();
+  const { error } = await db
+    .from('user_subscriptions')
+    .update({
+      ntfy_enabled: settings.ntfyEnabled !== undefined ? settings.ntfyEnabled : false,
+      ntfy_graph_enabled: settings.ntfyGraphEnabled !== undefined ? settings.ntfyGraphEnabled : true
+    })
+    .eq('user_id', userId);
+  if (error) throw error;
+}
+
 module.exports = {
   ensureSubscription,
   getSubscriptionStatus,
@@ -289,6 +320,8 @@ module.exports = {
   connectWallet,
   getUserWallet,
   verifyWalletPayment,
+  getNtfySettings,
+  updateNtfySettings,
   PAYMENT_ADDRESS,
   DAYS_PER_SUBSCRIPTION,
   SUBSCRIPTION_USD

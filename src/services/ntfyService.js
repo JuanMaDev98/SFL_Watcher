@@ -12,7 +12,11 @@ const NTFY_BASE = 'https://ntfy.sh';
  * @param {object} options - Optional settings
  */
 async function sendNtfyNotification(topic, message, options = {}) {
-  const { title = 'SFL Watcher', tags = '', priority = 4 } = options;
+  const { 
+    title = 'SFL Watcher', 
+    tags = '', 
+    priority = 4
+  } = options;
 
   try {
     const response = await fetch(`${NTFY_BASE}/${topic}`, {
@@ -21,8 +25,7 @@ async function sendNtfyNotification(topic, message, options = {}) {
         'Content-Type': 'text/plain',
         'Title': title,
         'Tags': tags,
-        'Priority': priority.toString(),
-        'X-Tags': tags
+        'Priority': priority.toString()
       },
       body: message
     });
@@ -37,6 +40,58 @@ async function sendNtfyNotification(topic, message, options = {}) {
   } catch (error) {
     console.error('[NTFY] Send error:', error.message);
     return false;
+  }
+}
+
+/**
+ * Send notification with image attachment via NTFY
+ * Note: NTFY attachments work best with URLs or small files
+ * For base64 images in Vercel, we upload to a temp service
+ */
+async function sendNtfyNotificationWithImage(topic, message, imageDataUrl, options = {}) {
+  const { title = 'SFL Watcher', tags = 'chart', priority = 4 } = options;
+
+  try {
+    // For Vercel/serverless, we'll use a workaround:
+    // Convert base64 to blob and send as multipart
+    const matches = imageDataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (!matches) {
+      // Not a valid data URL, send text only
+      return sendNtfyNotification(topic, message, { title, tags, priority });
+    }
+
+    const mimeType = matches[1];
+    const base64Data = matches[2];
+    const buffer = Buffer.from(base64Data, 'base64');
+    
+    const blob = new Blob([buffer], { type: mimeType });
+
+    const formData = new FormData();
+    formData.append('file', blob, 'chart.png');
+    formData.append('message', message);
+
+    const response = await fetch(`${NTFY_BASE}/${topic}`, {
+      method: 'POST',
+      headers: {
+        'Title': title,
+        'Tags': tags,
+        'Priority': priority.toString()
+      },
+      body: formData
+    });
+
+    if (!response.ok) {
+      console.error(`[NTFY] Error with image: ${response.status}`);
+      // Fallback to text-only
+      return sendNtfyNotification(topic, message, { title, tags, priority });
+    }
+
+    console.log(`[NTFY] Notification with image sent to ${topic}`);
+    return true;
+  } catch (error) {
+    console.error('[NTFY] Send with image error:', error.message);
+    // Fallback to text-only
+    return sendNtfyNotification(topic, message, { title, tags, priority });
   }
 }
 
@@ -80,9 +135,18 @@ function getNtfyInstructions(topic) {
     `2. Tap "Subscribe" and enter: <code>${topic}</code>`,
     '3. Done! You\'ll receive alerts as phone notifications.',
     '',
-    'Want to use a private topic?',
-    `/ntfyprivate to generate a password-protected topic`
+    '🔔 <b>Commands:</b>',
+    '/ntfy - Show setup info',
+    '/ntfytest - Send test notification',
+    '/ntfygraph - Toggle graph attachments',
+    '/ntfystatus - Check your NTFY settings'
   ].join('\n');
 }
 
-module.exports = { sendNtfyNotification, formatNtfyAlert, getUserNtfyTopic, getNtfyInstructions };
+module.exports = { 
+  sendNtfyNotification, 
+  sendNtfyNotificationWithImage,
+  formatNtfyAlert, 
+  getUserNtfyTopic, 
+  getNtfyInstructions 
+};

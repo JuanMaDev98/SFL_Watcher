@@ -187,7 +187,16 @@ router.post('/webhook', async (req, res) => {
       '/wallet - See your linked wallet\n' +
       '/status - Days remaining &amp; subscription status\n' +
       '/subscribe - Get payment info\n' +
-      '/pay - Verify FLOWER payment\n'
+      '/pay - Verify FLOWER payment\n\n' +
+
+      '━━━━━━━━━━━━━━━━━━━━\n' +
+      '📱 <b>NTFY PHONE NOTIFICATIONS</b>\n' +
+      '━━━━━━━━━━━━━━━━━━━━\n\n' +
+      '/ntfy - Setup NTFY app for phone notifications\n' +
+      '/ntfytest - Send test notification to phone\n' +
+      '/ntfygraph on/off - Enable/disable graph images in NTFY\n' +
+      '/ntfystatus - Check your NTFY settings\n\n' +
+      '📋 <b>Note:</b> NTFY notifications are public. DO NOT share your topic.
     );
   }
   else if (command === '/list') {
@@ -272,6 +281,16 @@ router.post('/webhook', async (req, res) => {
     const blocked = await checkSubscription(chatId);
     if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
     await processNtfyTest(chatId);
+  }
+  else if (command === '/ntfygraph') {
+    const blocked = await checkSubscription(chatId);
+    if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
+    await processNtfyGraph(chatId, parts);
+  }
+  else if (command === '/ntfystatus') {
+    const blocked = await checkSubscription(chatId);
+    if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
+    await processNtfyStatus(chatId);
   }
   else if (command === '/status') {
     const blocked = await checkSubscription(chatId);
@@ -831,9 +850,32 @@ async function processStatus(chatId) {
 
 async function processNtfy(chatId) {
   const { getUserNtfyTopic, getNtfyInstructions } = require('../services/ntfyService');
+  const { ensureSubscription, updateNtfySettings, getNtfySettings } = require('../services/subscriptionService');
+  
+  // Ensure subscription exists and enable NTFY
+  await ensureSubscription(chatId.toString());
+  await updateNtfySettings(chatId.toString(), { ntfyEnabled: true });
   
   const topic = getUserNtfyTopic(chatId.toString());
-  const instructions = getNtfyInstructions(topic);
+  const settings = await getNtfySettings(chatId.toString());
+  
+  const instructions = [
+    '📱 <b>NTFY Setup - Complete!</b>',
+    '',
+    `Your topic: <code>${topic}</code>`,
+    '',
+    '1. Open NTFY app',
+    `2. Tap "Subscribe" and enter: <code>${topic}</code>`,
+    '3. Done! Alerts will arrive as phone notifications.',
+    '',
+    '📊 Graph images in NTFY: <b>' + (settings.ntfyGraphEnabled ? 'ON' : 'OFF') + '</b>',
+    'Change with: /ntfygraph on/off',
+    '',
+    '🔔 Commands:',
+    '/ntfytest - Send test notification',
+    '/ntfygraph on/off - Toggle graph images',
+    '/ntfystatus - Check settings'
+  ].join('\n');
   
   await sendTelegramAwait(chatId, instructions);
 }
@@ -862,6 +904,68 @@ async function processNtfyTest(chatId) {
   } else {
     await sendTelegramAwait(chatId, '❌ Failed to send notification. Check that you\'re subscribed to your topic in NTFY app.');
   }
+}
+
+async function processNtfyGraph(chatId, parts) {
+  const { getNtfySettings, updateNtfySettings } = require('../services/subscriptionService');
+  
+  // First ensure subscription exists
+  await require('../services/subscriptionService').ensureSubscription(chatId.toString());
+  
+  const current = await getNtfySettings(chatId.toString());
+  
+  // If no argument, show current status
+  if (parts.length < 2) {
+    await sendTelegramAwait(chatId, 
+      '📊 <b>NTFY Graph Setting</b>\n\n' +
+      `Current: <b>${current.ntfyGraphEnabled ? 'ON' : 'OFF'}</b>\n\n` +
+      'Usage: /ntfygraph on - Enable graph images in notifications\n' +
+      'Usage: /ntfygraph off - Disable graph images (text only)'
+    );
+    return;
+  }
+  
+  const arg = parts[1].toLowerCase();
+  let newValue;
+  
+  if (arg === 'on' || arg === 'true' || arg === '1') {
+    newValue = true;
+  } else if (arg === 'off' || arg === 'false' || arg === '0') {
+    newValue = false;
+  } else {
+    await sendTelegramAwait(chatId, '❌ Invalid value. Use: /ntfygraph on or /ntfygraph off');
+    return;
+  }
+  
+  await updateNtfySettings(chatId.toString(), { ntfyGraphEnabled: newValue });
+  
+  await sendTelegramAwait(chatId, 
+    `✅ NTFY graph notifications: <b>${newValue ? 'ENABLED' : 'DISABLED'}</b>\n\n` +
+    (newValue ? '📊 Graphs will be attached to NTFY notifications.' : '📝 Only text notifications will be sent.')
+  );
+}
+
+async function processNtfyStatus(chatId) {
+  const { getNtfySettings, getUserNtfyTopic } = require('../services/subscriptionService');
+  const { getNtfyInstructions } = require('../services/ntfyService');
+  
+  // First ensure subscription exists
+  await require('../services/subscriptionService').ensureSubscription(chatId.toString());
+  
+  const settings = await getNtfySettings(chatId.toString());
+  const topic = getUserNtfyTopic(chatId.toString());
+  
+  await sendTelegramAwait(chatId,
+    '📱 <b>NTFY Status</b>\n\n' +
+    `Topic: <code>${topic}</code>\n` +
+    `NTFY enabled: <b>${settings.ntfyEnabled ? 'YES' : 'NO'}</b>\n` +
+    `Graph images: <b>${settings.ntfyGraphEnabled ? 'ON' : 'OFF'}</b>\n\n` +
+    'Commands:\n' +
+    '/ntfy - Setup instructions\n' +
+    '/ntfytest - Send test notification\n' +
+    '/ntfygraph on/off - Toggle graph images\n' +
+    '/ntfystatus - This message'
+  );
 }
 
 async function processPay(chatId) {
