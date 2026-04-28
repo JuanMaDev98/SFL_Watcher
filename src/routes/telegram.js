@@ -268,6 +268,11 @@ router.post('/webhook', async (req, res) => {
     if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
     await processNtfy(chatId);
   }
+  else if (command === '/ntfytest') {
+    const blocked = await checkSubscription(chatId);
+    if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
+    await processNtfyTest(chatId);
+  }
   else if (command === '/status') {
     const blocked = await checkSubscription(chatId);
     if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
@@ -831,6 +836,32 @@ async function processNtfy(chatId) {
   const instructions = getNtfyInstructions(topic);
   
   await sendTelegramAwait(chatId, instructions);
+}
+
+async function processNtfyTest(chatId) {
+  const { getUserNtfyTopic, sendNtfyNotification } = require('../services/ntfyService');
+  
+  const topic = getUserNtfyTopic(chatId.toString());
+  
+  const message = [
+    '🔔 <b>NTFY Test</b>',
+    '',
+    'This is a test notification from SFL Watcher.',
+    'If you see this, your NTFY app is configured correctly!',
+    '',
+    '⏰ ' + new Date().toISOString()
+  ].join('\n');
+  
+  const sent = await sendNtfyNotification(topic, message, {
+    title: 'SFL Watcher Test',
+    tags: 'test,bell'
+  });
+  
+  if (sent) {
+    await sendTelegramAwait(chatId, '✅ Test notification sent!\n\nCheck your NTFY app. If you don\'t see it within a few seconds, check your subscription to the topic.');
+  } else {
+    await sendTelegramAwait(chatId, '❌ Failed to send notification. Check that you\'re subscribed to your topic in NTFY app.');
+  }
 }
 
 async function processPay(chatId) {
