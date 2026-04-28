@@ -105,18 +105,29 @@ async function checkResourceAlerts(resource, alerts) {
       const triggered = currentPct >= thresholdHigh || currentPct <= thresholdLow;
 
       if (triggered) {
-        // Check cooldown
-        const lastNotified = alert.last_notified_at ? new Date(alert.last_notified_at) : null;
         const now = new Date();
-        const cooldownHours = 1;
-        const withinCooldown = lastNotified && (now - lastNotified) < (cooldownHours * 60 * 60 * 1000);
+        const cooldownHours = 12;
+        
+        // Determine if this is a RISE or FALL alert
+        const isRiseAlert = currentPct >= thresholdHigh;
+        const isFallAlert = currentPct <= thresholdLow;
+        
+        // Check cooldown based on direction
+        let withinCooldown = false;
+        if (isRiseAlert && alert.last_notified_rise_at) {
+          const lastNotified = new Date(alert.last_notified_rise_at);
+          withinCooldown = (now - lastNotified) < (cooldownHours * 60 * 60 * 1000);
+        } else if (isFallAlert && alert.last_notified_fall_at) {
+          const lastNotified = new Date(alert.last_notified_fall_at);
+          withinCooldown = (now - lastNotified) < (cooldownHours * 60 * 60 * 1000);
+        }
 
         if (withinCooldown) {
-          console.log(`[AlertEngine] ${resource}: alert triggered but within cooldown, skipping`);
+          console.log(`[AlertEngine] ${resource}: alert triggered (${isRiseAlert ? 'RISE' : 'FALL'}) but within 12h cooldown, skipping`);
           continue;
         }
 
-        console.log(`[AlertEngine] 🚨 TRIGGERED: ${resource} at ${currentPct}% (thresholds: +${thresholdHigh}/${thresholdLow}%)`);
+        console.log(`[AlertEngine] 🚨 TRIGGERED: ${resource} at ${currentPct}% (${isRiseAlert ? 'RISE' : 'FALL'}, thresholds: +${thresholdHigh}/${thresholdLow}%)`);
 
         // Send Telegram alert with chart
         await sendTelegramAlert(alert.user_id, resource, currentPct, stats, thresholdHigh, thresholdLow);
@@ -127,10 +138,11 @@ async function checkResourceAlerts(resource, alerts) {
           await sendNtfyAlertNotification(alert.user_id, resource, currentPct, stats, thresholdHigh, thresholdLow, ntfySettings.graphEnabled);
         }
 
-        // Update last_notified_at
+        // Update last_notified based on direction
+        const updateField = isRiseAlert ? 'last_notified_rise_at' : 'last_notified_fall_at';
         await supabase
           .from('user_alerts')
-          .update({ last_notified_at: now.toISOString() })
+          .update({ [updateField]: now.toISOString() })
           .eq('id', alert.id);
 
       } else {
