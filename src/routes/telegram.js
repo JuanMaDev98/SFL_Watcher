@@ -382,8 +382,8 @@ async function processGraph(chatId, resource) {
 
     const history = await getResourceHistory(resource, 90);
 
-    if (!history || history.length === 0) {
-      await sendTelegramAwait(chatId, `❌ No data for ${resource}.\nWait for cron to collect data.`);
+    if (!history || history.length < 2) {
+      await sendTelegramAwait(chatId, `❌ Not enough data for ${resource} (${history?.length || 0} points). Wait for cron to collect more data.`);
       return;
     }
 
@@ -402,9 +402,20 @@ async function processGraph(chatId, resource) {
     const { generateChartDataUrl } = require('../services/chartService');
     const { chartConfig } = generateChartDataUrl(resource, history);
     const arrayBuffer = await generateChartBuffer(chartConfig);
+    
+    if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+      throw new Error('QuickChart returned empty buffer');
+    }
+    
     const buffer = Buffer.from(arrayBuffer);
     const base64 = buffer.toString('base64');
     const chartUrl = `data:image/png;base64,${base64}`;
+    
+    // Validate data URL isn't too large (Telegram has ~10MB limit for photos)
+    if (chartUrl.length > 20 * 1024 * 1024) {
+      throw new Error('Chart image too large to send');
+    }
+    
     const sent = await sendPhoto(chatId, chartUrl, caption);
     if (!sent) {
       console.error('[graph] sendPhoto failed, attempting sendDocument fallback');
@@ -416,12 +427,12 @@ async function processGraph(chatId, resource) {
       const data = await resp.json();
       if (!resp.ok) {
         console.error('[graph] sendDocument fallback also failed:', data);
-        await sendTelegramAwait(chatId, `❌ Chart failed to generate. Try /price ${resource} for text data.`);
+        await sendTelegramAwait(chatId, `❌ Chart failed to send. Try /price ${resource} for text data.`);
       }
     }
   } catch (error) {
     console.error('[graph] error:', error.message);
-    await sendTelegramAwait(chatId, `Error: ${error.message}`);
+    await sendTelegramAwait(chatId, `❌ Error: ${error.message}`);
   }
 }
 
