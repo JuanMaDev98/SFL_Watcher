@@ -96,19 +96,18 @@ async function sendNtfyNotificationWithImage(topic, message, imageDataUrl, optio
 }
 
 /**
- * Format price alert for NTFY
+ * Format price alert for NTFY (ASCII-safe, no emojis)
  */
 function formatNtfyAlert(resource, currentPct, stats, thresholdHigh, thresholdLow) {
   const isAbove = currentPct > 0;
-  const emoji = isAbove ? '🔺' : '🔻';
-  const direction = isAbove ? '🔼 UP' : '🔽 DOWN';
+  const direction = isAbove ? 'UP' : 'DOWN';
   const sign = currentPct > 0 ? '+' : '';
 
   const lines = [
-    `${emoji} ${resource.toUpperCase()} Alert`,
+    `[ALERT] ${resource.toUpperCase()}`,
     `${direction} ${sign}${currentPct}% vs avg`,
     `Price: ${stats.current_price?.toFixed(4)} | Avg: ${stats.avg_price?.toFixed(4)}`,
-    `Thresholds: ▲ +${thresholdHigh}% | ▼ ${thresholdLow}%`
+    `Thresholds: +${thresholdHigh}% / ${thresholdLow}%`
   ];
 
   return lines.join('\n');
