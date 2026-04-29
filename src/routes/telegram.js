@@ -924,6 +924,7 @@ async function processNtfyTest(chatId) {
 async function processNtfyTestImg(chatId) {
   const { getUserNtfyTopic, sendNtfyNotificationWithImage } = require('../services/ntfyService');
   const { getResourceStats } = require('../services/priceFetcher');
+  const supabase = require('../lib/supabase');
   
   const topic = getUserNtfyTopic(chatId.toString());
   
