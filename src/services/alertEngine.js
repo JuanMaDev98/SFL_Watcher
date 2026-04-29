@@ -5,8 +5,12 @@ const { sendNtfyNotification, formatNtfyAlert, getUserNtfyTopic } = require('./n
 
 /**
  * Get stats for a resource using direct query
+ * Also checks if current price is min/max in last 90 days
  */
-async function getResourceStats(resource) {
+async function getResourceStats(resource, check90Day = true) {
+  const ninetyDaysAgo = new Date();
+  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+
   const { data: snapshots, error } = await supabase
     .from('price_snapshots')
     .select('price, created_at')
@@ -24,7 +28,32 @@ async function getResourceStats(resource) {
   const snapshot_count = prices.length;
   const percent_vs_avg = avg_price > 0 ? ((current_price - avg_price) / avg_price * 100) : 0;
 
-  return { resource, current_price, avg_price, min_price, max_price, percent_vs_avg, snapshot_count };
+  // Check 90-day min/max
+  let is90DayMin = false;
+  let is90DayMax = false;
+
+  if (check90Day) {
+    const recentSnapshots = snapshots.filter(s => new Date(s.created_at) >= ninetyDaysAgo);
+    if (recentSnapshots.length > 0) {
+      const recentPrices = recentSnapshots.map(s => parseFloat(s.price));
+      const min90 = Math.min(...recentPrices);
+      const max90 = Math.max(...recentPrices);
+      is90DayMin = current_price <= min90;
+      is90DayMax = current_price >= max90;
+    }
+  }
+
+  return { 
+    resource, 
+    current_price, 
+    avg_price, 
+    min_price, 
+    max_price, 
+    percent_vs_avg, 
+    snapshot_count,
+    is90DayMin,
+    is90DayMax
+  };
 }
 
 /**

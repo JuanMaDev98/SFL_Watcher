@@ -87,6 +87,14 @@ function formatAlertMessage(resource, currentPct, stats, thresholdHigh, threshol
   const direction = isAbove ? 'SUBIÓ' : 'BAJÓ';
   const sign = currentPct > 0 ? '+' : '';
 
+  // 90-day min/max indicator
+  let minMaxLabel = '';
+  if (stats.is90DayMin) {
+    minMaxLabel = '\n\n🟢 <b>90-Day MINIMUM - BUY OPPORTUNITY!</b>';
+  } else if (stats.is90DayMax) {
+    minMaxLabel = '\n\n🔴 <b>90-Day MAXIMUM - SELL TIME!</b>';
+  }
+
   const lines = [
     `${emoji} <b>SFL Watcher Alert</b>`,
     `<b>${resource.toUpperCase()}</b> ${direction} del promedio!`,
@@ -96,6 +104,7 @@ function formatAlertMessage(resource, currentPct, stats, thresholdHigh, threshol
     `📈 Promedio (historial): <code>${stats.avg_price}</code>`,
     `📍 Mín/Máx: <code>${stats.min_price}</code> / <code>${stats.max_price}</code>`,
     `📋 Snapshots usados: <code>${stats.snapshot_count}</code>`,
+    minMaxLabel,
     '',
     `⚙️ Tus umbrales:`,
     `   ▲ Umbral alto: +${thresholdHigh}%`,

@@ -225,8 +225,17 @@ function formatNtfyAlert(resource, currentPct, stats, thresholdHigh, thresholdLo
   const direction = isAbove ? 'UP' : 'DOWN';
   const sign = currentPct > 0 ? '+' : '';
 
+  // 90-day min/max indicator
+  let minMaxLabel = '';
+  if (stats.is90DayMin) {
+    minMaxLabel = ' [90D MIN] - BUY OPPORTUNITY!';
+  } else if (stats.is90DayMax) {
+    minMaxLabel = ' [90D MAX] - SELL TIME!';
+  }
+
   const lines = [
-    `${direction} ${sign}${currentPct}% (Price: ${stats.current_price?.toFixed(4)})`,
+    `${direction} ${sign}${currentPct}%${minMaxLabel}`,
+    `Price: ${stats.current_price?.toFixed(4)} | Avg: ${stats.avg_price?.toFixed(4)}`,
   ];
 
   return lines.join('\n');
