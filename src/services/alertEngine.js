@@ -134,8 +134,16 @@ async function checkResourceAlerts(resource, alerts) {
 
         // Send NTFY notification if enabled
         const ntfySettings = await getUserNtfyEnabled(alert.user_id);
+        console.log(`[AlertEngine] NTFY check for user ${alert.user_id}: enabled=${ntfySettings.enabled}, graphEnabled=${ntfySettings.graphEnabled}`);
         if (ntfySettings.enabled) {
-          await sendNtfyAlertNotification(alert.user_id, resource, currentPct, stats, thresholdHigh, thresholdLow, ntfySettings.graphEnabled);
+          try {
+            await sendNtfyAlertNotification(alert.user_id, resource, currentPct, stats, thresholdHigh, thresholdLow, ntfySettings.graphEnabled);
+            console.log(`[AlertEngine] NTFY notification sent for ${resource}`);
+          } catch (ntfyErr) {
+            console.error(`[AlertEngine] NTFY error for ${resource}:`, ntfyErr.message);
+          }
+        } else {
+          console.log(`[AlertEngine] NTFY skipped for ${resource} - not enabled`);
         }
 
         // Update last_notified based on direction
