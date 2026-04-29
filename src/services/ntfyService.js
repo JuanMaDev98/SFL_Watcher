@@ -241,7 +241,7 @@ function formatNtfyAlert(resource, currentPct, stats, thresholdHigh, thresholdLo
 
   const lines = [
     `${colorLabel} ${arrow} ${resource.toUpperCase()} ${sign}${currentPct}%${minMaxLabel}`,
-    `💰 ${curStr} | 📊 Avg ${avgStr}`,
+    `💰 Price ${curStr} | 📊 Avg ${avgStr}`,
   ];
 
   return lines.join('\n');

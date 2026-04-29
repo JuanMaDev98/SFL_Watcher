@@ -100,19 +100,23 @@ function formatAlertMessage(resource, currentPct, stats, thresholdHigh, threshol
   const lines = [
     `${emoji} <b>SFL Watcher Alert</b>`,
     `<b>${resource.toUpperCase()}</b> ${direction} del promedio!`,
-    '',
-    minMaxLabel,
-    '',
-    `💰 Precio actual: <code>${stats.current_price}</code>`,
-    `📊 vs promedio: <code>${sign}${currentPct}%</code>`,
-    `📈 Promedio: <code>${avgStr}</code>`,
-    `📍 Mín/Máx: <code>${stats.min_price}</code> / <code>${stats.max_price}</code>`,
-    `📋 Snapshots: <code>${stats.snapshot_count}</code>`,
-    '',
-    `⚙️ Tus umbrales:`,
-    `   ▲ Umbral alto: +${thresholdHigh}%`,
-    `   ▼ Umbral bajo: ${thresholdLow}%`,
   ];
+
+  if (minMaxLabel) {
+    lines.push('');
+    lines.push(minMaxLabel);
+    lines.push('');
+  }
+
+  lines.push(`💰 Precio actual: <code>${stats.current_price}</code>`);
+  lines.push(`📊 vs promedio: <code>${sign}${currentPct}%</code>`);
+  lines.push(`📈 Promedio: <code>${avgStr}</code>`);
+  lines.push(`📍 Mín/Máx: <code>${stats.min_price}</code> / <code>${stats.max_price}</code>`);
+  lines.push(`📋 Snapshots: <code>${stats.snapshot_count}</code>`);
+  lines.push('');
+  lines.push(`⚙️ Tus umbrales:`);
+  lines.push(`   ▲ Umbral alto: +${thresholdHigh}%`);
+  lines.push(`   ▼ Umbral bajo: ${thresholdLow}%`);
 
   return lines.join('\n');
 }
