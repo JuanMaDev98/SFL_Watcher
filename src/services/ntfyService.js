@@ -233,9 +233,11 @@ function formatNtfyAlert(resource, currentPct, stats, thresholdHigh, thresholdLo
     minMaxLabel = ' [90D MAX] - SELL TIME!';
   }
 
+  const avgStr = stats.avg_price?.toFixed(5) || stats.avg_price;
+
   const lines = [
     `${direction} ${sign}${currentPct}%${minMaxLabel}`,
-    `Price: ${stats.current_price?.toFixed(4)} | Avg: ${stats.avg_price?.toFixed(4)}`,
+    `Price: ${stats.current_price?.toFixed(5)} | Avg: ${avgStr}`,
   ];
 
   return lines.join('\n');

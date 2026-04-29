@@ -90,21 +90,24 @@ function formatAlertMessage(resource, currentPct, stats, thresholdHigh, threshol
   // 90-day min/max indicator
   let minMaxLabel = '';
   if (stats.is90DayMin) {
-    minMaxLabel = '\n\n🟢 <b>90-Day MINIMUM - BUY OPPORTUNITY!</b>';
+    minMaxLabel = '🟢 <b>90-Day MINIMUM - BUY OPPORTUNITY!</b>';
   } else if (stats.is90DayMax) {
-    minMaxLabel = '\n\n🔴 <b>90-Day MAXIMUM - SELL TIME!</b>';
+    minMaxLabel = '🔴 <b>90-Day MAXIMUM - SELL TIME!</b>';
   }
+
+  const avgStr = stats.avg_price?.toFixed(5) || stats.avg_price;
 
   const lines = [
     `${emoji} <b>SFL Watcher Alert</b>`,
     `<b>${resource.toUpperCase()}</b> ${direction} del promedio!`,
     '',
+    minMaxLabel,
+    '',
     `💰 Precio actual: <code>${stats.current_price}</code>`,
     `📊 vs promedio: <code>${sign}${currentPct}%</code>`,
-    `📈 Promedio (historial): <code>${stats.avg_price}</code>`,
+    `📈 Promedio: <code>${avgStr}</code>`,
     `📍 Mín/Máx: <code>${stats.min_price}</code> / <code>${stats.max_price}</code>`,
-    `📋 Snapshots usados: <code>${stats.snapshot_count}</code>`,
-    minMaxLabel,
+    `📋 Snapshots: <code>${stats.snapshot_count}</code>`,
     '',
     `⚙️ Tus umbrales:`,
     `   ▲ Umbral alto: +${thresholdHigh}%`,
