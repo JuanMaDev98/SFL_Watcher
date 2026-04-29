@@ -228,16 +228,19 @@ function formatNtfyAlert(resource, currentPct, stats, thresholdHigh, thresholdLo
   // 90-day min/max indicator
   let minMaxLabel = '';
   if (stats.is90DayMin) {
-    minMaxLabel = ' 🟢[90D MIN]';
+    minMaxLabel = ' [90D MIN]';
   } else if (stats.is90DayMax) {
-    minMaxLabel = ' 🔴[90D MAX]';
+    minMaxLabel = ' [90D MAX]';
   }
+
+  // Color based on direction (green=up, red=down), 90D label adds context
+  const colorLabel = isAbove ? '🟢' : '🔴';
 
   const avgStr = stats.avg_price?.toFixed(5) || stats.avg_price;
   const curStr = stats.current_price?.toFixed(5) || stats.current_price;
 
   const lines = [
-    `${arrow} ${resource.toUpperCase()} ${sign}${currentPct}%${minMaxLabel}`,
+    `${colorLabel} ${arrow} ${resource.toUpperCase()} ${sign}${currentPct}%${minMaxLabel}`,
     `💰 ${curStr} | 📊 Avg ${avgStr}`,
   ];
 
