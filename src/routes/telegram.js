@@ -287,6 +287,11 @@ router.post('/webhook', async (req, res) => {
     if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
     await processNtfyGraph(chatId, parts);
   }
+  else if (command === '/ntfytestimg') {
+    const blocked = await checkSubscription(chatId);
+    if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
+    await processNtfyTestImg(chatId);
+  }
   else if (command === '/ntfystatus') {
     const blocked = await checkSubscription(chatId);
     if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
@@ -902,6 +907,68 @@ async function processNtfyTest(chatId) {
     await sendTelegramAwait(chatId, '✅ Test notification sent!\n\nCheck your NTFY app. If you don\'t see it within a few seconds, check your subscription to the topic.');
   } else {
     await sendTelegramAwait(chatId, '❌ Failed to send notification. Check that you\'re subscribed to your topic in NTFY app.');
+  }
+}
+
+async function processNtfyTestImg(chatId) {
+  const { getUserNtfyTopic, sendNtfyNotificationWithImage } = require('../services/ntfyService');
+  const { getResourceStats } = require('../services/alertEngine');
+  
+  const topic = getUserNtfyTopic(chatId.toString());
+  
+  // Get a resource with data for testing
+  const resource = 'cabbage';
+  const stats = await getResourceStats(resource);
+  
+  if (!stats) {
+    await sendTelegramAwait(chatId, '❌ Could not get price stats for testing.');
+    return;
+  }
+  
+  const currentPct = parseFloat(stats.percent_vs_avg.toFixed(2));
+  
+  // Get history for chart
+  const { data: history } = await supabase
+    .from('price_snapshots')
+    .select('price, created_at')
+    .eq('resource', resource)
+    .order('created_at', { ascending: false })
+    .limit(30);
+  
+  if (!history || history.length < 2) {
+    await sendTelegramAwait(chatId, '❌ Not enough history for chart.');
+    return;
+  }
+  
+  // Generate chart
+  const { generateChartDataUrl, generateChartBuffer } = require('../services/chartService');
+  const { chartConfig } = generateChartDataUrl(resource, history.reverse());
+  const arrayBuffer = await generateChartBuffer(chartConfig);
+  const buffer = Buffer.from(arrayBuffer);
+  const base64 = buffer.toString('base64');
+  const chartDataUrl = `data:image/png;base64,${base64}`;
+  
+  const message = [
+    '🖼️ <b>NTFY Image Test</b>',
+    '',
+    `Resource: ${resource}`,
+    `Change: ${currentPct > 0 ? '+' : ''}${currentPct}%`,
+    '',
+    '⏰ ' + new Date().toISOString()
+  ].join('\n');
+  
+  console.log(`[NTFY-TEST-IMG] Sending to topic: ${topic}`);
+  console.log(`[NTFY-TEST-IMG] Chart size: ${chartDataUrl.length} chars`);
+  
+  const sent = await sendNtfyNotificationWithImage(topic, message, chartDataUrl, {
+    title: '🖼️ NTFY Image Test',
+    tags: 'test,camera'
+  });
+  
+  if (sent) {
+    await sendTelegramAwait(chatId, '✅ Image notification sent!\n\nCheck your NTFY app for the notification with chart image.');
+  } else {
+    await sendTelegramAwait(chatId, '❌ Failed to send image notification. Check logs.');
   }
 }
 
