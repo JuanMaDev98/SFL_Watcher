@@ -98,8 +98,7 @@ function formatAlertMessage(resource, currentPct, stats, thresholdHigh, threshol
   const avgStr = stats.avg_price?.toFixed(5) || stats.avg_price;
 
   const lines = [
-    `${emoji} <b>SFL Watcher Alert</b>`,
-    `<b>${resource.toUpperCase()}</b> ${direction} del promedio!`,
+    `${emoji} <b>${resource.toUpperCase()}</b> ${direction} del promedio!`,
   ];
 
   if (minMaxLabel) {

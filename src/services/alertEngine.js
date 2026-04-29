@@ -228,13 +228,12 @@ async function sendTelegramAlert(userId, resource, currentPct, stats, thresholdH
   const emoji = currentPct >= thresholdHigh ? '🔺' : '🔻';
 
   try {
-    // Get history for chart
+    // Get history for chart (use all available snapshots)
     const { data: history } = await supabase
       .from('price_snapshots')
       .select('price, created_at')
       .eq('resource', resource)
-      .order('created_at', { ascending: false })
-      .limit(30);
+      .order('created_at', { ascending: true });
 
     if (history && history.length >= 2) {
       // Generate and send chart
