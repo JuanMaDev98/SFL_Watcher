@@ -7,6 +7,7 @@
  */
 
 const NTFY_BASE = 'https://ntfy.sh';
+const TMPFILES_BASE = 'https://tmpfiles.org';
 
 /**
  * Send notification via NTFY
@@ -71,9 +72,55 @@ async function sendNtfyNotification(topic, message, options = {}) {
 }
 
 /**
+ * Upload file to tmpfiles.org and return URL
+ * @param {Buffer} buffer - File buffer
+ * @param {string} filename - Filename
+ * @returns {Promise<string|null>} - URL to file or null if failed
+ */
+async function uploadToTmpfiles(buffer, filename) {
+  try {
+    console.log(`[TMPFILES] Uploading ${filename} (${buffer.length} bytes)...`);
+    
+    const formData = new FormData();
+    formData.append('file', new Blob([buffer]), filename);
+
+    const response = await fetch(`${TMPFILES_BASE}/api/v1/upload`, {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!response.ok) {
+      console.error(`[TMPFILES] Upload failed: ${response.status}`);
+      return null;
+    }
+
+    const data = await response.json();
+    console.log(`[TMPFILES] Response:`, JSON.stringify(data));
+
+    // tmpfiles.org returns { status: "success", url: "https://tmpfiles.org/xxx/filename.png" }
+    if (data.status === 'success' && data.url) {
+      // Convert to direct download URL (tmpfiles.org/xxx/file.png -> tmpfiles.org/dl/xxx/file.png)
+      const directUrl = data.url.replace('/file/', '/dl/');
+      console.log(`[TMPFILES] Direct URL: ${directUrl}`);
+      return directUrl;
+    }
+
+    console.error(`[TMPFILES] Unexpected response:`, data);
+    return null;
+  } catch (error) {
+    console.error(`[TMPFILES] Upload error: ${error.message}`);
+    return null;
+  }
+}
+
+/**
  * Send notification with image attachment via NTFY
- * Note: NTFY attachments work best with URLs or small files
- * For base64 images in Vercel, we upload to a temp service
+ * 
+ * Strategy: Upload image to tmpfiles.org, then send NTFY message with the image URL.
+ * This makes the image appear as a clickable link that opens in browser.
+ * 
+ * Note: NTFY can't inline-render base64 images directly in notifications.
+ * Using tmpfiles.org URL approach provides a working solution.
  */
 async function sendNtfyNotificationWithImage(topic, message, imageDataUrl, options = {}) {
   const { title = 'SFL Watcher', tags = 'chart', priority = 4 } = options;
@@ -88,13 +135,11 @@ async function sendNtfyNotificationWithImage(topic, message, imageDataUrl, optio
   console.log(`[NTFY-IMG] Image data URL length: ${imageDataUrl?.length || 0}`);
 
   try {
-    // For Vercel/serverless, we'll use a workaround:
-    // Convert base64 to blob and send as multipart
+    // Parse base64 data URL
     const matches = imageDataUrl.match(/^data:([^;]+);base64,(.+)$/);
     if (!matches) {
       console.log(`[NTFY-IMG] Invalid data URL format, falling back to text-only`);
-      // Not a valid data URL, send text only
-      return sendNtfyNotification(topic, message, { title, tags, priority });
+      return sendNtfyNotification(topic, message, { title: asciiTitle, tags: asciiTags, priority });
     }
 
     const mimeType = matches[1];
@@ -102,39 +147,20 @@ async function sendNtfyNotificationWithImage(topic, message, imageDataUrl, optio
     const buffer = Buffer.from(base64Data, 'base64');
     
     console.log(`[NTFY-IMG] MimeType: ${mimeType}, Buffer size: ${buffer.length} bytes`);
+
+    // Upload to tmpfiles.org
+    const imageUrl = await uploadToTmpfiles(buffer, 'chart.png');
     
-    const blob = new Blob([buffer], { type: mimeType });
-
-    const formData = new FormData();
-    formData.append('file', blob, 'chart.png');
-    formData.append('message', message);
-
-    const url = `${NTFY_BASE}/${topic}`;
-    console.log(`[NTFY-IMG] Request URL: ${url}`);
-    
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Title': asciiTitle,
-        'Tags': asciiTags,
-        'Priority': priority.toString()
-      },
-      body: formData
-    });
-
-    console.log(`[NTFY-IMG] Response status: ${response.status} ${response.statusText}`);
-    const responseText = await response.text().catch(() => 'Could not read response');
-    console.log(`[NTFY-IMG] Response body: ${responseText.substring(0, 200)}`);
-
-    if (!response.ok) {
-      console.error(`[NTFY-IMG] Error with image: ${response.status} ${response.statusText}`);
-      // Fallback to text-only
-      console.log(`[NTFY-IMG] Falling back to text-only notification`);
+    if (!imageUrl) {
+      console.log(`[NTFY-IMG] Failed to upload image, falling back to text-only`);
       return sendNtfyNotification(topic, message, { title: asciiTitle, tags: asciiTags, priority });
     }
 
-    console.log(`[NTFY-IMG] Notification with image sent successfully to ${topic}`);
-    return true;
+    // Send NTFY with message containing the image URL
+    const messageWithImage = `${message}\n\nChart: ${imageUrl}`;
+    console.log(`[NTFY-IMG] Message with URL: ${messageWithImage.substring(0, 100)}...`);
+
+    return sendNtfyNotification(topic, messageWithImage, { title: asciiTitle, tags: asciiTags, priority });
   } catch (error) {
     console.error(`[NTFY-IMG] Send with image error: ${error.message}`);
     console.error(`[NTFY-IMG] Error stack:`, error.stack);
@@ -175,15 +201,15 @@ function getUserNtfyTopic(userId) {
  */
 function getNtfyInstructions(topic) {
   return [
-    '📱 <b>NTFY Setup</b>',
+    'NTFY Setup',
     '',
-    `Your topic: <code>${topic}</code>`,
+    `Your topic: ${topic}`,
     '',
     '1. Open NTFY app',
-    `2. Tap "Subscribe" and enter: <code>${topic}</code>`,
-    '3. Done! You\'ll receive alerts as phone notifications.',
+    `2. Tap "Subscribe" and enter: ${topic}`,
+    '3. Done! You will receive alerts as phone notifications.',
     '',
-    '🔔 <b>Commands:</b>',
+    'Commands:',
     '/ntfy - Show setup info',
     '/ntfytest - Send test notification',
     '/ntfygraph - Toggle graph attachments',
