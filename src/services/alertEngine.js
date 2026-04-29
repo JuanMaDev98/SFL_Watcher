@@ -236,8 +236,8 @@ async function sendTelegramAlert(userId, resource, currentPct, stats, thresholdH
       .order('created_at', { ascending: true });
 
     if (history && history.length >= 2) {
-      // Generate and send chart
-      const { chartConfig } = generateChartDataUrl(resource, history.reverse());
+      // Generate and send chart (history already in ascending order: oldest → newest)
+      const { chartConfig } = generateChartDataUrl(resource, history);
       const arrayBuffer = await generateChartBuffer(chartConfig);
       const buffer = Buffer.from(arrayBuffer);
       const base64 = buffer.toString('base64');
