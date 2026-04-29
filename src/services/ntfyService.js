@@ -222,22 +222,23 @@ async function sendNtfyWithAttachment(topic, message, attachmentUrl, options = {
  */
 function formatNtfyAlert(resource, currentPct, stats, thresholdHigh, thresholdLow) {
   const isAbove = currentPct > 0;
-  const direction = isAbove ? 'UP' : 'DOWN';
+  const arrow = isAbove ? '↑' : '↓';
   const sign = currentPct > 0 ? '+' : '';
 
   // 90-day min/max indicator
   let minMaxLabel = '';
   if (stats.is90DayMin) {
-    minMaxLabel = ' [90D MIN]';
+    minMaxLabel = ' 🟢[90D MIN]';
   } else if (stats.is90DayMax) {
-    minMaxLabel = ' [90D MAX]';
+    minMaxLabel = ' 🔴[90D MAX]';
   }
 
   const avgStr = stats.avg_price?.toFixed(5) || stats.avg_price;
+  const curStr = stats.current_price?.toFixed(5) || stats.current_price;
 
   const lines = [
-    `${direction} ${sign}${currentPct}%${minMaxLabel}`,
-    `Price: ${stats.current_price?.toFixed(5)} | Avg: ${avgStr}`,
+    `${arrow} ${resource.toUpperCase()} ${sign}${currentPct}%${minMaxLabel}`,
+    `💰 ${curStr} | 📊 Avg ${avgStr}`,
   ];
 
   return lines.join('\n');
