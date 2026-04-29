@@ -1,7 +1,7 @@
 const supabase = require('../lib/supabase');
 const { sendTelegramMessage, formatAlertMessage, sendTelegramPhoto } = require('./telegramService');
 const { generateChartDataUrl, generateChartBuffer } = require('./chartService');
-const { sendNtfyNotification, sendNtfyNotificationWithImage, formatNtfyAlert, getUserNtfyTopic } = require('./ntfyService');
+const { sendNtfyNotification, formatNtfyAlert, getUserNtfyTopic } = require('./ntfyService');
 
 /**
  * Get stats for a resource using direct query
@@ -257,47 +257,10 @@ async function sendNtfyAlertNotification(userId, resource, currentPct, stats, th
     const message = formatNtfyAlert(resource, currentPct, stats, thresholdHigh, thresholdLow);
     console.log(`[AlertEngine] Formatted message:\n${message}`);
 
-    if (includeGraph) {
-      console.log(`[AlertEngine] Graph inclusion enabled, fetching history...`);
-      // Get history and generate chart
-      const { data: history, error: historyError } = await supabase
-        .from('price_snapshots')
-        .select('price, created_at')
-        .eq('resource', resource)
-        .order('created_at', { ascending: false })
-        .limit(30);
-      
-      if (historyError) {
-        console.error(`[AlertEngine] ❌ History fetch error: ${historyError.message}`);
-      } else {
-        console.log(`[AlertEngine] History fetched: ${history?.length || 0} records`);
-      }
-
-      if (history && history.length >= 2) {
-        console.log(`[AlertEngine] Generating chart...`);
-        const { chartConfig } = generateChartDataUrl(resource, history.reverse());
-        const arrayBuffer = await generateChartBuffer(chartConfig);
-        const buffer = Buffer.from(arrayBuffer);
-        const base64 = buffer.toString('base64');
-        const chartDataUrl = `data:image/png;base64,${base64}`;
-        console.log(`[AlertEngine] Chart generated, size: ${chartDataUrl.length} chars`);
-
-        console.log(`[AlertEngine] Calling sendNtfyNotificationWithImage...`);
-        const result = await sendNtfyNotificationWithImage(topic, message, chartDataUrl, {
-          title: `🚨 ${resource.toUpperCase()} Alert`,
-          tags: 'warning'
-        });
-        console.log(`[AlertEngine] sendNtfyNotificationWithImage result: ${result}`);
-        return result;
-      } else {
-        console.log(`[AlertEngine] Not enough history (${history?.length || 0}), sending text-only`);
-      }
-    }
-
-    // Text-only notification
+    // Always send text-only notification (no images)
     console.log(`[AlertEngine] Sending text-only notification...`);
     const result = await sendNtfyNotification(topic, message, {
-      title: `🚨 ${resource.toUpperCase()} Alert`,
+      title: `${resource.toUpperCase()} Alert`,
       tags: 'warning'
     });
     console.log(`[AlertEngine] sendNtfyNotification result: ${result}`);

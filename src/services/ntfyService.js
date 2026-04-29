@@ -218,7 +218,7 @@ async function sendNtfyWithAttachment(topic, message, attachmentUrl, options = {
 }
 
 /**
- * Format price alert for NTFY (ASCII-safe, no emojis)
+ * Format price alert for NTFY (simple message, no image)
  */
 function formatNtfyAlert(resource, currentPct, stats, thresholdHigh, thresholdLow) {
   const isAbove = currentPct > 0;
@@ -226,10 +226,7 @@ function formatNtfyAlert(resource, currentPct, stats, thresholdHigh, thresholdLo
   const sign = currentPct > 0 ? '+' : '';
 
   const lines = [
-    `[ALERT] ${resource.toUpperCase()}`,
-    `${direction} ${sign}${currentPct}% vs avg`,
-    `Price: ${stats.current_price?.toFixed(4)} | Avg: ${stats.avg_price?.toFixed(4)}`,
-    `Thresholds: +${thresholdHigh}% / ${thresholdLow}%`
+    `${direction} ${sign}${currentPct}% (Price: ${stats.current_price?.toFixed(4)})`,
   ];
 
   return lines.join('\n');
