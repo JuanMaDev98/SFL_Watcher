@@ -923,7 +923,7 @@ async function processNtfyTest(chatId) {
 
 async function processNtfyTestImg(chatId) {
   const { getUserNtfyTopic, sendNtfyNotificationWithImage } = require('../services/ntfyService');
-  const { getResourceStats } = require('../services/alertEngine');
+  const { getResourceStats } = require('../services/priceFetcher');
   
   const topic = getUserNtfyTopic(chatId.toString());
   
