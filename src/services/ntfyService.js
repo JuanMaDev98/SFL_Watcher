@@ -228,9 +228,9 @@ function formatNtfyAlert(resource, currentPct, stats, thresholdHigh, thresholdLo
   // 90-day min/max indicator
   let minMaxLabel = '';
   if (stats.is90DayMin) {
-    minMaxLabel = ' [90D MIN] - BUY OPPORTUNITY!';
+    minMaxLabel = ' [90D MIN]';
   } else if (stats.is90DayMax) {
-    minMaxLabel = ' [90D MAX] - SELL TIME!';
+    minMaxLabel = ' [90D MAX]';
   }
 
   const avgStr = stats.avg_price?.toFixed(5) || stats.avg_price;
