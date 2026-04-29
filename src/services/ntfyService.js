@@ -18,8 +18,19 @@ async function sendNtfyNotification(topic, message, options = {}) {
     priority = 4
   } = options;
 
+  console.log(`[NTFY] === SEND NOTIFICATION ===`);
+  console.log(`[NTFY] Topic: ${topic}`);
+  console.log(`[NTFY] Title: ${title}`);
+  console.log(`[NTFY] Tags: ${tags}`);
+  console.log(`[NTFY] Priority: ${priority}`);
+  console.log(`[NTFY] Message length: ${message?.length || 0}`);
+  console.log(`[NTFY] Message preview: ${message?.substring(0, 100)}...`);
+
   try {
-    const response = await fetch(`${NTFY_BASE}/${topic}`, {
+    const url = `${NTFY_BASE}/${topic}`;
+    console.log(`[NTFY] Request URL: ${url}`);
+    
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'text/plain',
@@ -30,15 +41,24 @@ async function sendNtfyNotification(topic, message, options = {}) {
       body: message
     });
 
+    console.log(`[NTFY] Response status: ${response.status} ${response.statusText}`);
+    console.log(`[NTFY] Response ok: ${response.ok}`);
+    
+    // Read response body for more details
+    const responseText = await response.text().catch(() => 'Could not read response');
+    console.log(`[NTFY] Response body: ${responseText.substring(0, 200)}`);
+
     if (!response.ok) {
       console.error(`[NTFY] Error: ${response.status} ${response.statusText}`);
+      console.error(`[NTFY] Full response:`, responseText);
       return false;
     }
 
-    console.log(`[NTFY] Notification sent to ${topic}`);
+    console.log(`[NTFY] ✅ Notification sent successfully to ${topic}`);
     return true;
   } catch (error) {
-    console.error('[NTFY] Send error:', error.message);
+    console.error(`[NTFY] ❌ Send error: ${error.message}`);
+    console.error(`[NTFY] Error stack:`, error.stack);
     return false;
   }
 }
@@ -51,11 +71,17 @@ async function sendNtfyNotification(topic, message, options = {}) {
 async function sendNtfyNotificationWithImage(topic, message, imageDataUrl, options = {}) {
   const { title = 'SFL Watcher', tags = 'chart', priority = 4 } = options;
 
+  console.log(`[NTFY-IMG] === SEND NOTIFICATION WITH IMAGE ===`);
+  console.log(`[NTFY-IMG] Topic: ${topic}`);
+  console.log(`[NTFY-IMG] Title: ${title}`);
+  console.log(`[NTFY-IMG] Image data URL length: ${imageDataUrl?.length || 0}`);
+
   try {
     // For Vercel/serverless, we'll use a workaround:
     // Convert base64 to blob and send as multipart
     const matches = imageDataUrl.match(/^data:([^;]+);base64,(.+)$/);
     if (!matches) {
+      console.log(`[NTFY-IMG] Invalid data URL format, falling back to text-only`);
       // Not a valid data URL, send text only
       return sendNtfyNotification(topic, message, { title, tags, priority });
     }
@@ -64,13 +90,18 @@ async function sendNtfyNotificationWithImage(topic, message, imageDataUrl, optio
     const base64Data = matches[2];
     const buffer = Buffer.from(base64Data, 'base64');
     
+    console.log(`[NTFY-IMG] MimeType: ${mimeType}, Buffer size: ${buffer.length} bytes`);
+    
     const blob = new Blob([buffer], { type: mimeType });
 
     const formData = new FormData();
     formData.append('file', blob, 'chart.png');
     formData.append('message', message);
 
-    const response = await fetch(`${NTFY_BASE}/${topic}`, {
+    const url = `${NTFY_BASE}/${topic}`;
+    console.log(`[NTFY-IMG] Request URL: ${url}`);
+    
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Title': title,
@@ -80,17 +111,24 @@ async function sendNtfyNotificationWithImage(topic, message, imageDataUrl, optio
       body: formData
     });
 
+    console.log(`[NTFY-IMG] Response status: ${response.status} ${response.statusText}`);
+    const responseText = await response.text().catch(() => 'Could not read response');
+    console.log(`[NTFY-IMG] Response body: ${responseText.substring(0, 200)}`);
+
     if (!response.ok) {
-      console.error(`[NTFY] Error with image: ${response.status}`);
+      console.error(`[NTFY-IMG] Error with image: ${response.status} ${response.statusText}`);
       // Fallback to text-only
+      console.log(`[NTFY-IMG] Falling back to text-only notification`);
       return sendNtfyNotification(topic, message, { title, tags, priority });
     }
 
-    console.log(`[NTFY] Notification with image sent to ${topic}`);
+    console.log(`[NTFY-IMG] ✅ Notification with image sent successfully to ${topic}`);
     return true;
   } catch (error) {
-    console.error('[NTFY] Send with image error:', error.message);
+    console.error(`[NTFY-IMG] ❌ Send with image error: ${error.message}`);
+    console.error(`[NTFY-IMG] Error stack:`, error.stack);
     // Fallback to text-only
+    console.log(`[NTFY-IMG] Falling back to text-only notification`);
     return sendNtfyNotification(topic, message, { title, tags, priority });
   }
 }

@@ -31,11 +31,28 @@ async function getResourceStats(resource) {
  * Get NTFY settings for a user
  */
 async function getUserNtfyEnabled(userId) {
-  const { data } = await supabase
+  console.log(`[AlertEngine] getUserNtfyEnabled() called for userId: ${userId}`);
+  
+  const { data, error } = await supabase
     .from('user_subscriptions')
     .select('ntfy_enabled, ntfy_graph_enabled')
     .eq('user_id', userId)
     .single();
+  
+  if (error) {
+    console.error(`[AlertEngine] ❌ Error fetching NTFY settings: ${error.message}`);
+    console.error(`[AlertEngine] Error details:`, JSON.stringify(error));
+    return { enabled: false, graphEnabled: true };
+  }
+  
+  if (!data) {
+    console.log(`[AlertEngine] ⚠️ No subscription record found for userId: ${userId}`);
+    return { enabled: false, graphEnabled: true };
+  }
+  
+  console.log(`[AlertEngine] ✅ NTFY settings found:`);
+  console.log(`[AlertEngine]   - ntfy_enabled: ${data.ntfy_enabled}`);
+  console.log(`[AlertEngine]   - ntfy_graph_enabled: ${data.ntfy_graph_enabled}`);
   
   return {
     enabled: data?.ntfy_enabled || false,
@@ -225,42 +242,70 @@ async function sendTelegramAlert(userId, resource, currentPct, stats, thresholdH
  * Send NTFY notification (with optional chart)
  */
 async function sendNtfyAlertNotification(userId, resource, currentPct, stats, thresholdHigh, thresholdLow, includeGraph) {
+  console.log(`[AlertEngine] sendNtfyAlertNotification() ===`);
+  console.log(`[AlertEngine]   userId: ${userId}`);
+  console.log(`[AlertEngine]   resource: ${resource}`);
+  console.log(`[AlertEngine]   currentPct: ${currentPct}%`);
+  console.log(`[AlertEngine]   thresholdHigh: ${thresholdHigh}%`);
+  console.log(`[AlertEngine]   thresholdLow: ${thresholdLow}%`);
+  console.log(`[AlertEngine]   includeGraph: ${includeGraph}`);
+  
   try {
     const topic = getUserNtfyTopic(userId);
+    console.log(`[AlertEngine] Generated topic: ${topic}`);
+    
     const message = formatNtfyAlert(resource, currentPct, stats, thresholdHigh, thresholdLow);
+    console.log(`[AlertEngine] Formatted message:\n${message}`);
 
     if (includeGraph) {
+      console.log(`[AlertEngine] Graph inclusion enabled, fetching history...`);
       // Get history and generate chart
-      const { data: history } = await supabase
+      const { data: history, error: historyError } = await supabase
         .from('price_snapshots')
         .select('price, created_at')
         .eq('resource', resource)
         .order('created_at', { ascending: false })
         .limit(30);
+      
+      if (historyError) {
+        console.error(`[AlertEngine] ❌ History fetch error: ${historyError.message}`);
+      } else {
+        console.log(`[AlertEngine] History fetched: ${history?.length || 0} records`);
+      }
 
       if (history && history.length >= 2) {
+        console.log(`[AlertEngine] Generating chart...`);
         const { chartConfig } = generateChartDataUrl(resource, history.reverse());
         const arrayBuffer = await generateChartBuffer(chartConfig);
         const buffer = Buffer.from(arrayBuffer);
         const base64 = buffer.toString('base64');
         const chartDataUrl = `data:image/png;base64,${base64}`;
+        console.log(`[AlertEngine] Chart generated, size: ${chartDataUrl.length} chars`);
 
-        await sendNtfyNotificationWithImage(topic, message, chartDataUrl, {
+        console.log(`[AlertEngine] Calling sendNtfyNotificationWithImage...`);
+        const result = await sendNtfyNotificationWithImage(topic, message, chartDataUrl, {
           title: `🚨 ${resource.toUpperCase()} Alert`,
           tags: 'warning'
         });
-        return;
+        console.log(`[AlertEngine] sendNtfyNotificationWithImage result: ${result}`);
+        return result;
+      } else {
+        console.log(`[AlertEngine] Not enough history (${history?.length || 0}), sending text-only`);
       }
     }
 
     // Text-only notification
-    await sendNtfyNotification(topic, message, {
+    console.log(`[AlertEngine] Sending text-only notification...`);
+    const result = await sendNtfyNotification(topic, message, {
       title: `🚨 ${resource.toUpperCase()} Alert`,
       tags: 'warning'
     });
+    console.log(`[AlertEngine] sendNtfyNotification result: ${result}`);
+    return result;
 
   } catch (error) {
-    console.error('[AlertEngine] sendNtfyAlertNotification error:', error.message);
+    console.error(`[AlertEngine] ❌ sendNtfyAlertNotification error: ${error.message}`);
+    console.error(`[AlertEngine] Error stack:`, error.stack);
   }
 }
 
