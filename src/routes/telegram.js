@@ -890,12 +890,12 @@ async function processNtfyTest(chatId) {
   const topic = getUserNtfyTopic(chatId.toString());
   
   const message = [
-    '🔔 <b>NTFY Test</b>',
+    'NTFY TEST',
     '',
     'This is a test notification from SFL Watcher.',
     'If you see this, your NTFY app is configured correctly!',
     '',
-    '⏰ ' + new Date().toISOString()
+    'Time: ' + new Date().toISOString()
   ].join('\n');
   
   const sent = await sendNtfyNotification(topic, message, {
@@ -949,19 +949,19 @@ async function processNtfyTestImg(chatId) {
   const chartDataUrl = `data:image/png;base64,${base64}`;
   
   const message = [
-    '🖼️ <b>NTFY Image Test</b>',
+    'NTFY IMAGE TEST',
     '',
     `Resource: ${resource}`,
     `Change: ${currentPct > 0 ? '+' : ''}${currentPct}%`,
     '',
-    '⏰ ' + new Date().toISOString()
+    'Time: ' + new Date().toISOString()
   ].join('\n');
   
   console.log(`[NTFY-TEST-IMG] Sending to topic: ${topic}`);
   console.log(`[NTFY-TEST-IMG] Chart size: ${chartDataUrl.length} chars`);
   
   const sent = await sendNtfyNotificationWithImage(topic, message, chartDataUrl, {
-    title: '🖼️ NTFY Image Test',
+    title: 'NTFY Image Test',
     tags: 'test,camera'
   });
   

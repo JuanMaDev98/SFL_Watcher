@@ -1,6 +1,9 @@
 /**
  * NTFY Service - Push notifications to phone via NTFY app
  * https://ntfy.sh
+ * 
+ * Note: NTFY uses HTTP headers, and Vercel Edge runtime can't handle
+ * non-ASCII characters (like emojis) in header values. Use ASCII only.
  */
 
 const NTFY_BASE = 'https://ntfy.sh';
@@ -18,10 +21,14 @@ async function sendNtfyNotification(topic, message, options = {}) {
     priority = 4
   } = options;
 
+  // Vercel Edge can't handle non-ASCII in headers - strip any non-ASCII chars
+  const asciiTitle = title.replace(/[^\x00-\x7F]/g, '');
+  const asciiTags = tags.replace(/[^\x00-\x7F]/g, '');
+
   console.log(`[NTFY] === SEND NOTIFICATION ===`);
   console.log(`[NTFY] Topic: ${topic}`);
-  console.log(`[NTFY] Title: ${title}`);
-  console.log(`[NTFY] Tags: ${tags}`);
+  console.log(`[NTFY] Title (ASCII): ${asciiTitle}`);
+  console.log(`[NTFY] Tags: ${asciiTags}`);
   console.log(`[NTFY] Priority: ${priority}`);
   console.log(`[NTFY] Message length: ${message?.length || 0}`);
   console.log(`[NTFY] Message preview: ${message?.substring(0, 100)}...`);
@@ -34,8 +41,8 @@ async function sendNtfyNotification(topic, message, options = {}) {
       method: 'POST',
       headers: {
         'Content-Type': 'text/plain',
-        'Title': title,
-        'Tags': tags,
+        'Title': asciiTitle,
+        'Tags': asciiTags,
         'Priority': priority.toString()
       },
       body: message
@@ -54,10 +61,10 @@ async function sendNtfyNotification(topic, message, options = {}) {
       return false;
     }
 
-    console.log(`[NTFY] ✅ Notification sent successfully to ${topic}`);
+    console.log(`[NTFY] Notification sent successfully to ${topic}`);
     return true;
   } catch (error) {
-    console.error(`[NTFY] ❌ Send error: ${error.message}`);
+    console.error(`[NTFY] Send error: ${error.message}`);
     console.error(`[NTFY] Error stack:`, error.stack);
     return false;
   }
@@ -71,9 +78,13 @@ async function sendNtfyNotification(topic, message, options = {}) {
 async function sendNtfyNotificationWithImage(topic, message, imageDataUrl, options = {}) {
   const { title = 'SFL Watcher', tags = 'chart', priority = 4 } = options;
 
+  // Vercel Edge can't handle non-ASCII in headers - strip any non-ASCII chars
+  const asciiTitle = title.replace(/[^\x00-\x7F]/g, '');
+  const asciiTags = tags.replace(/[^\x00-\x7F]/g, '');
+
   console.log(`[NTFY-IMG] === SEND NOTIFICATION WITH IMAGE ===`);
   console.log(`[NTFY-IMG] Topic: ${topic}`);
-  console.log(`[NTFY-IMG] Title: ${title}`);
+  console.log(`[NTFY-IMG] Title (ASCII): ${asciiTitle}`);
   console.log(`[NTFY-IMG] Image data URL length: ${imageDataUrl?.length || 0}`);
 
   try {
@@ -104,8 +115,8 @@ async function sendNtfyNotificationWithImage(topic, message, imageDataUrl, optio
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Title': title,
-        'Tags': tags,
+        'Title': asciiTitle,
+        'Tags': asciiTags,
         'Priority': priority.toString()
       },
       body: formData
@@ -119,17 +130,17 @@ async function sendNtfyNotificationWithImage(topic, message, imageDataUrl, optio
       console.error(`[NTFY-IMG] Error with image: ${response.status} ${response.statusText}`);
       // Fallback to text-only
       console.log(`[NTFY-IMG] Falling back to text-only notification`);
-      return sendNtfyNotification(topic, message, { title, tags, priority });
+      return sendNtfyNotification(topic, message, { title: asciiTitle, tags: asciiTags, priority });
     }
 
-    console.log(`[NTFY-IMG] ✅ Notification with image sent successfully to ${topic}`);
+    console.log(`[NTFY-IMG] Notification with image sent successfully to ${topic}`);
     return true;
   } catch (error) {
-    console.error(`[NTFY-IMG] ❌ Send with image error: ${error.message}`);
+    console.error(`[NTFY-IMG] Send with image error: ${error.message}`);
     console.error(`[NTFY-IMG] Error stack:`, error.stack);
     // Fallback to text-only
     console.log(`[NTFY-IMG] Falling back to text-only notification`);
-    return sendNtfyNotification(topic, message, { title, tags, priority });
+    return sendNtfyNotification(topic, message, { title: asciiTitle, tags: asciiTags, priority });
   }
 }
 
