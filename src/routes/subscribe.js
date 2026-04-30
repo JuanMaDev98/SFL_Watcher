@@ -32,7 +32,7 @@ router.post('/', async (req, res) => {
 
     res.status(201).json({ success: true, data });
   } catch (error) {
-    console.error('POST /api/subscribe error:', error);
+    logger.error('POST /api/subscribe error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -59,7 +59,7 @@ router.delete('/', async (req, res) => {
 
     res.json({ success: true, message: 'Token removed' });
   } catch (error) {
-    console.error('DELETE /api/subscribe error:', error);
+    logger.error('DELETE /api/subscribe error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

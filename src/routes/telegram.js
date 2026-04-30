@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const logger = require('../utils/logger');
 
 const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
 
@@ -12,7 +13,7 @@ function sendTelegram(chatId, text) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' })
-    }).catch(e => console.error('Telegram error:', e.message));
+    }).catch(e => logger.error('Telegram error: ' + e.message));
   });
 }
 
@@ -28,7 +29,7 @@ async function sendTelegramAwait(chatId, text) {
     });
     return resp.ok;
   } catch (e) {
-    console.error('Telegram error:', e.message);
+    logger.error('Telegram error: ' + e.message);
     return false;
   }
 }
@@ -53,7 +54,7 @@ async function sendPhoto(chatId, photoUrl, caption) {
 
       const resp = await fetch(`${TELEGRAM_API}/sendPhoto`, { method: 'POST', body: form });
       const data = await resp.json();
-      if (!resp.ok) console.error('[sendPhoto] Telegram error:', data);
+      if (!resp.ok) logger.error('[sendPhoto] Telegram error: ' + data);
       return resp.ok;
     } else {
       const resp = await fetch(`${TELEGRAM_API}/sendPhoto`, {
@@ -62,11 +63,11 @@ async function sendPhoto(chatId, photoUrl, caption) {
         body: JSON.stringify({ chat_id: chatId, photo: photoUrl, caption, parse_mode: 'HTML' })
       });
       const data = await resp.json();
-      if (!resp.ok) console.error('[sendPhoto] Telegram error:', data);
+      if (!resp.ok) logger.error('[sendPhoto] Telegram error: ' + data);
       return resp.ok;
     }
   } catch (e) {
-    console.error('[sendPhoto] error:', e.message);
+    logger.error('[sendPhoto] error: ' + e.message);
     return false;
   }
 }
@@ -126,7 +127,7 @@ router.post('/webhook', async (req, res) => {
   const parts = text.split(' ');
   const command = parts[0].toLowerCase();
 
-  console.log(`[webhook] ${command} from ${chatId}`);
+  logger.info(`[webhook] ${command} from ${chatId}`);
 
   if (command === '/start') {
     await sendTelegramAwait(chatId,
@@ -343,7 +344,7 @@ async function processPriceSimple(chatId, resource) {
       `📈 Data Points: ${history.length}`
     );
   } catch (error) {
-    console.error('[price] error:', error.message);
+    logger.error('[price] error: ' + error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
   }
 }
@@ -366,7 +367,7 @@ async function processAllPrices(chatId) {
 
     await sendTelegramAwait(chatId, '💰 <b>Current Prices:</b>\n' + lines.join('\n'));
   } catch (error) {
-    console.error('[priceall] error:', error.message);
+    logger.error('[priceall] error: ' + error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
   }
 }
@@ -414,7 +415,7 @@ async function processGraph(chatId, resource) {
     
     const sent = await sendPhoto(chatId, chartUrl, caption);
     if (!sent) {
-      console.error('[graph] sendPhoto failed, attempting sendDocument fallback');
+      logger.error('[graph] sendPhoto failed, attempting sendDocument fallback')
       const resp = await fetch(`${TELEGRAM_API}/sendDocument`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -422,12 +423,12 @@ async function processGraph(chatId, resource) {
       });
       const data = await resp.json();
       if (!resp.ok) {
-        console.error('[graph] sendDocument fallback also failed:', data);
+        logger.error('[graph] sendDocument fallback also failed: ' + data);
         await sendTelegramAwait(chatId, `❌ Chart failed to send. Try /price ${resource} for text data.`);
       }
     }
   } catch (error) {
-    console.error('[graph] error:', error.message);
+    logger.error('[graph] error: ' + error.message);
     await sendTelegramAwait(chatId, `❌ Error: ${error.message}`);
   }
 }
@@ -440,7 +441,7 @@ async function processDebug(chatId) {
     const chartUrl = generateChartUrl('yam', history);
     await sendTelegramAwait(chatId, `🔧 Debug:\nHistory: ${history.length} points\nURL: ${chartUrl.length} chars`);
   } catch (error) {
-    console.error('[debug] error:', error.message);
+    logger.error('[debug] error: ' + error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
   }
 }
@@ -553,7 +554,7 @@ async function processAlertConfig(chatId, input, isListMode) {
     );
 
   } catch (error) {
-    console.error('[alert] error:', error.message);
+    logger.error('[alert] error: ' + error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
   }
 }
@@ -577,7 +578,7 @@ async function processRemoveAlert(chatId, resource) {
     await sendTelegramAwait(chatId, `🗑️ Alert for <b>${resource}</b> permanently deleted.`);
 
   } catch (error) {
-    console.error('[removealert] error:', error.message);
+    logger.error('[removealert] error: ' + error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
   }
 }
@@ -685,7 +686,7 @@ async function processSetAllAlerts(chatId, input) {
     await sendTelegramAwait(chatId, response);
 
   } catch (error) {
-    console.error('[alertall] error:', error.message);
+    logger.error('[alertall] error: ' + error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
   }
 }
@@ -704,7 +705,7 @@ async function processRemoveAllAlerts(chatId) {
     await sendTelegramAwait(chatId, '🗑️ <b>All Alerts Permanently Deleted</b>\n\nAll your price alerts have been removed from the database.');
 
   } catch (error) {
-    console.error('[removeallalerts] error:', error.message);
+    logger.error('[removeallalerts] error: ' + error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
   }
 }
@@ -741,7 +742,7 @@ async function processConnectWallet(chatId, walletAddress) {
     );
 
   } catch (error) {
-    console.error('[connectwallet] error:', error.message);
+    logger.error('[connectwallet] error: ' + error.message);
     if (error.message.includes('Invalid Ethereum')) {
       await sendTelegramAwait(chatId, '❌ Invalid Ethereum address format.\n\nExample: 0x742d35Cc6634C0532925a3b844Bc9e7595f1d687');
     } else {
@@ -772,7 +773,7 @@ async function processShowWallet(chatId) {
     );
 
   } catch (error) {
-    console.error('[wallet] error:', error.message);
+    logger.error('[wallet] error: ' + error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
   }
 }
@@ -826,7 +827,7 @@ async function processSubscribe(chatId) {
     await sendTelegramAwait(chatId, lines.join('\n'));
 
   } catch (error) {
-    console.error('[subscribe] error:', error.message);
+    logger.error('[subscribe] error: ' + error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
   }
 }
@@ -854,7 +855,7 @@ async function processStatus(chatId) {
     await sendTelegramAwait(chatId, message);
 
   } catch (error) {
-    console.error('[status] error:', error.message);
+    logger.error('[status] error: ' + error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
   }
 }
@@ -1065,7 +1066,7 @@ async function processPay(chatId) {
     }
 
   } catch (error) {
-    console.error('[pay] error:', error.message);
+    logger.error('[pay] error: ' + error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
   }
 }

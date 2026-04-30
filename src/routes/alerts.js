@@ -80,7 +80,7 @@ router.post('/', async (req, res) => {
     }
 
   } catch (error) {
-    console.error('POST /api/alerts error:', error);
+    logger.error('POST /api/alerts error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -107,7 +107,7 @@ router.get('/', async (req, res) => {
     res.json({ success: true, data });
 
   } catch (error) {
-    console.error('GET /api/alerts error:', error);
+    logger.error('GET /api/alerts error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -134,7 +134,7 @@ router.delete('/:id', async (req, res) => {
     res.json({ success: true, message: 'Alert disabled' });
 
   } catch (error) {
-    console.error('DELETE /api/alerts/:id error:', error);
+    logger.error('DELETE /api/alerts/:id error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

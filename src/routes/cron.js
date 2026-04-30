@@ -20,7 +20,7 @@ async function sendTelegram(chatId, text) {
       body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' })
     });
   } catch (e) {
-    console.error('Telegram send error:', e.message);
+    logger.error('Telegram send error: ' + e.message);
   }
 }
 
@@ -30,10 +30,9 @@ async function sendTelegram(chatId, text) {
  */
 async function checkExpiringSubscriptions() {
   try {
-    // Check if supabase module exists (not implemented yet)
     let supabase;
     try {
-      ({ supabase } = require('../services/supabase'));
+      supabase = require('../lib/supabase');
     } catch (e) {
       // Supabase not configured yet, skip expiry check
       return;
@@ -46,7 +45,7 @@ async function checkExpiringSubscriptions() {
       .eq('status', 'active');
     
     if (error) {
-      console.error('Error fetching subscriptions:', error.message);
+      logger.error('Error fetching subscriptions: ' + error.message);
       return;
     }
     
@@ -98,10 +97,10 @@ async function checkExpiringSubscriptions() {
         .update({ notify_expiry: now.toISOString() })
         .eq('user_id', sub.user_id);
       
-      console.log(`📢 Notified user ${sub.user_id} about expiring subscription`);
+      logger.info('Notified user ' + sub.user_id + ' about expiring subscription');
     }
   } catch (e) {
-    console.error('Expiry check error:', e.message);
+    logger.error('Expiry check error: ' + e.message);
   }
 }
 
@@ -111,24 +110,26 @@ async function checkExpiringSubscriptions() {
  * Fetches latest prices from SFL API and checks alerts
  */
 router.get('/fetch-prices', async (req, res) => {
-  console.log(`[${new Date().toISOString()}] Cron: Fetching prices...`);
+  logger.info('Cron: Fetching prices...');
 
   try {
     // Fetch new prices
     const result = await fetchPrices();
-    console.log(`✅ Fetched ${result.length} resources`);
+    logger.info('Fetched ' + result.length + ' resources');
 
     // Check alerts after fetching
     if (result.length > 0) {
       try {
         await checkAlerts();
       } catch (e) {
-        console.error('[AlertEngine] Error:', e.message);
+        logger.error('[AlertEngine] Error: ' + e.message);
       }
     }
 
     // Check for expiring subscriptions and notify users
     await checkExpiringSubscriptions();
+
+    logger.info('Cron completed successfully');
 
     res.json({
       success: true,
@@ -138,7 +139,7 @@ router.get('/fetch-prices', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Cron fetch-prices error:', error.message);
+    logger.error('Cron fetch-prices error: ' + error.message);
     res.status(500).json({
       success: false,
       error: error.message,

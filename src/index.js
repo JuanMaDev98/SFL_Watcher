@@ -32,7 +32,7 @@ app.get('/health', (req, res) => {
 
 // Error handler
 app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err.message, { stack: err.stack, path: req.path, method: req.method });
+  logger.error('Unhandled error:', err.message, { stack: err.stack, path: req.path, method: req.method });
   
   res.status(500).json({ error: 'Internal server error' });
 });
@@ -40,8 +40,8 @@ app.use((err, req, res, next) => {
 // Start server (only in local dev, Vercel uses serverless)
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => {
-    console.log(`🚀 SFL Watcher API running on port ${PORT}`);
-    console.log(`📊 Health check: http://localhost:${PORT}/health`);
+    logger.info(`🚀 SFL Watcher API running on port ${PORT}`);
+    logger.info(`📊 Health check: http://localhost:${PORT}/health`);
   });
 }
 

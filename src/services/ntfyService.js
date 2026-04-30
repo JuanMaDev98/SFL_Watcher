@@ -26,17 +26,17 @@ async function sendNtfyNotification(topic, message, options = {}) {
   const asciiTitle = title.replace(/[^\x00-\x7F]/g, '');
   const asciiTags = tags.replace(/[^\x00-\x7F]/g, '');
 
-  console.log(`[NTFY] === SEND NOTIFICATION ===`);
-  console.log(`[NTFY] Topic: ${topic}`);
-  console.log(`[NTFY] Title (ASCII): ${asciiTitle}`);
-  console.log(`[NTFY] Tags: ${asciiTags}`);
-  console.log(`[NTFY] Priority: ${priority}`);
-  console.log(`[NTFY] Message length: ${message?.length || 0}`);
-  console.log(`[NTFY] Message preview: ${message?.substring(0, 100)}...`);
+  logger.info(`[NTFY] === SEND NOTIFICATION ===`);
+  logger.info(`[NTFY] Topic: ${topic}`);
+  logger.info(`[NTFY] Title (ASCII): ${asciiTitle}`);
+  logger.info(`[NTFY] Tags: ${asciiTags}`);
+  logger.info(`[NTFY] Priority: ${priority}`);
+  logger.info(`[NTFY] Message length: ${message?.length || 0}`);
+  logger.info(`[NTFY] Message preview: ${message?.substring(0, 100)}...`);
 
   try {
     const url = `${NTFY_BASE}/${topic}`;
-    console.log(`[NTFY] Request URL: ${url}`);
+    logger.info(`[NTFY] Request URL: ${url}`);
     
     const response = await fetch(url, {
       method: 'POST',
@@ -49,24 +49,24 @@ async function sendNtfyNotification(topic, message, options = {}) {
       body: message
     });
 
-    console.log(`[NTFY] Response status: ${response.status} ${response.statusText}`);
-    console.log(`[NTFY] Response ok: ${response.ok}`);
+    logger.info(`[NTFY] Response status: ${response.status} ${response.statusText}`);
+    logger.info(`[NTFY] Response ok: ${response.ok}`);
     
     // Read response body for more details
     const responseText = await response.text().catch(() => 'Could not read response');
-    console.log(`[NTFY] Response body: ${responseText.substring(0, 200)}`);
+    logger.info(`[NTFY] Response body: ${responseText.substring(0, 200)}`);
 
     if (!response.ok) {
-      console.error(`[NTFY] Error: ${response.status} ${response.statusText}`);
-      console.error(`[NTFY] Full response:`, responseText);
+      logger.error(`[NTFY] Error: ${response.status} ${response.statusText}`);
+      logger.error(`[NTFY] Full response:`, responseText);
       return false;
     }
 
-    console.log(`[NTFY] Notification sent successfully to ${topic}`);
+    logger.info(`[NTFY] Notification sent successfully to ${topic}`);
     return true;
   } catch (error) {
-    console.error(`[NTFY] Send error: ${error.message}`);
-    console.error(`[NTFY] Error stack:`, error.stack);
+    logger.error(`[NTFY] Send error: ${error.message}`);
+    logger.error(`[NTFY] Error stack:`, error.stack);
     return false;
   }
 }
@@ -79,7 +79,7 @@ async function sendNtfyNotification(topic, message, options = {}) {
  */
 async function uploadToCatbox(buffer, filename) {
   try {
-    console.log(`[CATBOX] Uploading ${filename} (${buffer.length} bytes)...`);
+    logger.info(`[CATBOX] Uploading ${filename} (${buffer.length} bytes)...`);
     
     const formData = new FormData();
     formData.append('reqtype', 'fileupload');
@@ -92,24 +92,24 @@ async function uploadToCatbox(buffer, filename) {
     });
 
     if (!response.ok) {
-      console.error(`[CATBOX] Upload failed: ${response.status}`);
+      logger.error(`[CATBOX] Upload failed: ${response.status}`);
       const errorText = await response.text().catch(() => 'unknown');
-      console.error(`[CATBOX] Error body: ${errorText}`);
+      logger.error(`[CATBOX] Error body: ${errorText}`);
       return null;
     }
 
     const url = await response.text();
-    console.log(`[CATBOX] Uploaded URL: ${url}`);
+    logger.info(`[CATBOX] Uploaded URL: ${url}`);
     
     // catbox returns just the URL as plain text
     if (url.startsWith('https://')) {
       return url.trim();
     }
     
-    console.error(`[CATBOX] Unexpected response: ${url}`);
+    logger.error(`[CATBOX] Unexpected response: ${url}`);
     return null;
   } catch (error) {
-    console.error(`[CATBOX] Upload error: ${error.message}`);
+    logger.error(`[CATBOX] Upload error: ${error.message}`);
     return null;
   }
 }
@@ -129,16 +129,16 @@ async function sendNtfyNotificationWithImage(topic, message, imageDataUrl, optio
   const asciiTitle = title.replace(/[^\x00-\x7F]/g, '');
   const asciiTags = tags.replace(/[^\x00-\x7F]/g, '');
 
-  console.log(`[NTFY-IMG] === SEND NOTIFICATION WITH IMAGE ===`);
-  console.log(`[NTFY-IMG] Topic: ${topic}`);
-  console.log(`[NTFY-IMG] Title (ASCII): ${asciiTitle}`);
-  console.log(`[NTFY-IMG] Image data URL length: ${imageDataUrl?.length || 0}`);
+  logger.info(`[NTFY-IMG] === SEND NOTIFICATION WITH IMAGE ===`);
+  logger.info(`[NTFY-IMG] Topic: ${topic}`);
+  logger.info(`[NTFY-IMG] Title (ASCII): ${asciiTitle}`);
+  logger.info(`[NTFY-IMG] Image data URL length: ${imageDataUrl?.length || 0}`);
 
   try {
     // Parse base64 data URL
     const matches = imageDataUrl.match(/^data:([^;]+);base64,(.+)$/);
     if (!matches) {
-      console.log(`[NTFY-IMG] Invalid data URL format, falling back to text-only`);
+      logger.info(`[NTFY-IMG] Invalid data URL format, falling back to text-only`);
       return sendNtfyNotification(topic, message, { title: asciiTitle, tags: asciiTags, priority });
     }
 
@@ -146,17 +146,17 @@ async function sendNtfyNotificationWithImage(topic, message, imageDataUrl, optio
     const base64Data = matches[2];
     const buffer = Buffer.from(base64Data, 'base64');
     
-    console.log(`[NTFY-IMG] MimeType: ${mimeType}, Buffer size: ${buffer.length} bytes`);
+    logger.info(`[NTFY-IMG] MimeType: ${mimeType}, Buffer size: ${buffer.length} bytes`);
 
     // Upload to catbox
     const imageUrl = await uploadToCatbox(buffer, 'chart.png');
     
     if (!imageUrl) {
-      console.log(`[NTFY-IMG] Failed to upload image, falling back to text-only`);
+      logger.info(`[NTFY-IMG] Failed to upload image, falling back to text-only`);
       return sendNtfyNotification(topic, message, { title: asciiTitle, tags: asciiTags, priority });
     }
 
-    console.log(`[NTFY-IMG] Image URL: ${imageUrl}`);
+    logger.info(`[NTFY-IMG] Image URL: ${imageUrl}`);
 
     // Send NTFY with Attach header
     return sendNtfyWithAttachment(topic, message, imageUrl, { 
@@ -165,10 +165,10 @@ async function sendNtfyNotificationWithImage(topic, message, imageDataUrl, optio
       priority 
     });
   } catch (error) {
-    console.error(`[NTFY-IMG] Send with image error: ${error.message}`);
-    console.error(`[NTFY-IMG] Error stack:`, error.stack);
+    logger.error(`[NTFY-IMG] Send with image error: ${error.message}`);
+    logger.error(`[NTFY-IMG] Error stack:`, error.stack);
     // Fallback to text-only
-    console.log(`[NTFY-IMG] Falling back to text-only notification`);
+    logger.info(`[NTFY-IMG] Falling back to text-only notification`);
     return sendNtfyNotification(topic, message, { title: asciiTitle, tags: asciiTags, priority });
   }
 }
@@ -179,9 +179,9 @@ async function sendNtfyNotificationWithImage(topic, message, imageDataUrl, optio
 async function sendNtfyWithAttachment(topic, message, attachmentUrl, options = {}) {
   const { title = 'SFL Watcher', tags = '', priority = 4 } = options;
 
-  console.log(`[NTFY-ATTACH] === SEND WITH ATTACHMENT ===`);
-  console.log(`[NTFY-ATTACH] Topic: ${topic}`);
-  console.log(`[NTFY-ATTACH] Attachment URL: ${attachmentUrl}`);
+  logger.info(`[NTFY-ATTACH] === SEND WITH ATTACHMENT ===`);
+  logger.info(`[NTFY-ATTACH] Topic: ${topic}`);
+  logger.info(`[NTFY-ATTACH] Attachment URL: ${attachmentUrl}`);
 
   try {
     const url = `${NTFY_BASE}/${topic}`;
@@ -198,21 +198,21 @@ async function sendNtfyWithAttachment(topic, message, attachmentUrl, options = {
       body: message
     });
 
-    console.log(`[NTFY-ATTACH] Response status: ${response.status} ${response.statusText}`);
+    logger.info(`[NTFY-ATTACH] Response status: ${response.status} ${response.statusText}`);
     
     const responseText = await response.text().catch(() => 'Could not read response');
-    console.log(`[NTFY-ATTACH] Response body: ${responseText.substring(0, 200)}`);
+    logger.info(`[NTFY-ATTACH] Response body: ${responseText.substring(0, 200)}`);
 
     if (!response.ok) {
-      console.error(`[NTFY-ATTACH] Error: ${response.status} ${response.statusText}`);
+      logger.error(`[NTFY-ATTACH] Error: ${response.status} ${response.statusText}`);
       return false;
     }
 
-    console.log(`[NTFY-ATTACH] Notification with attachment sent successfully`);
+    logger.info(`[NTFY-ATTACH] Notification with attachment sent successfully`);
     return true;
   } catch (error) {
-    console.error(`[NTFY-ATTACH] Send error: ${error.message}`);
-    console.error(`[NTFY-ATTACH] Error stack:`, error.stack);
+    logger.error(`[NTFY-ATTACH] Send error: ${error.message}`);
+    logger.error(`[NTFY-ATTACH] Error stack:`, error.stack);
     return false;
   }
 }

@@ -8,7 +8,7 @@ const TELEGRAM_API = TELEGRAM_BOT_TOKEN ? `https://api.telegram.org/bot${TELEGRA
  */
 async function sendTelegramMessage(chatId, message) {
   if (!TELEGRAM_API) {
-    console.log('[Telegram] Bot token not configured, skipping');
+    logger.info('[Telegram] Bot token not configured, skipping');
     return false;
   }
 
@@ -26,12 +26,12 @@ async function sendTelegramMessage(chatId, message) {
 
     const data = await response.json();
     if (!response.ok) {
-      console.error('[Telegram] Error:', data.description);
+      logger.error('[Telegram] Error:', data.description);
       return false;
     }
     return true;
   } catch (error) {
-    console.error('[Telegram] Send error:', error.message);
+    logger.error('[Telegram] Send error:', error.message);
     return false;
   }
 }
@@ -61,7 +61,7 @@ async function sendTelegramPhoto(chatId, photoDataUrl, caption) {
       const resp = await fetch(`${TELEGRAM_API}/sendPhoto`, { method: 'POST', body: form });
       const data = await resp.json();
       if (!resp.ok) {
-        console.error(`[Telegram] sendPhoto failed: ${JSON.stringify(data)}`);
+        logger.error(`[Telegram] sendPhoto failed: ${JSON.stringify(data)}`);
       }
       return resp.ok;
     } else {
@@ -73,7 +73,7 @@ async function sendTelegramPhoto(chatId, photoDataUrl, caption) {
       return resp.ok;
     }
   } catch (error) {
-    console.error('[Telegram] Photo send error:', error.message);
+    logger.error('[Telegram] Photo send error:', error.message);
     return false;
   }
 }

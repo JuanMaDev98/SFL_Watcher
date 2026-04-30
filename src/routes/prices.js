@@ -12,7 +12,7 @@ router.get('/', async (req, res) => {
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    console.error('GET /api/prices error:', error);
+    logger.error('GET /api/prices error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -35,7 +35,7 @@ router.get('/:resource', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error(`GET /api/prices/${req.params.resource} error:`, error);
+    logger.error(`GET /api/prices/${req.params.resource} error:`, error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -57,7 +57,7 @@ router.get('/:resource/history', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error(`GET /api/prices/${req.params.resource}/history error:`, error);
+    logger.error(`GET /api/prices/${req.params.resource}/history error:`, error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

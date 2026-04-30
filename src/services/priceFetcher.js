@@ -6,7 +6,7 @@ const SFL_API_URL = process.env.SFL_API_URL || 'https://sfl.world/api/v1';
  * Fetch prices from SFL API and save to database
  */
 async function fetchPrices() {
-  console.log(`Fetching prices from ${SFL_API_URL}/prices...`);
+  logger.info(`Fetching prices from ${SFL_API_URL}/prices...`);
 
   try {
     const response = await fetch(`${SFL_API_URL}/prices`);
@@ -32,7 +32,7 @@ async function fetchPrices() {
     }
 
     if (snapshots.length === 0) {
-      console.log('No prices to insert');
+      logger.info('No prices to insert');
       return [];
     }
 
@@ -43,15 +43,15 @@ async function fetchPrices() {
       .select();
 
     if (error) {
-      console.error('❌ Supabase insert error:', error.message);
+      logger.error('❌ Supabase insert error:', error.message);
       throw error;
     }
 
-    console.log(`✅ Inserted ${inserted.length} price snapshots`);
+    logger.info(`✅ Inserted ${inserted.length} price snapshots`);
     return inserted;
 
   } catch (error) {
-    console.error('❌ fetchPrices error:', error.message);
+    logger.error('❌ fetchPrices error:', error.message);
     throw error;
   }
 }

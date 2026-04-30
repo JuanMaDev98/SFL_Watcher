@@ -60,7 +60,7 @@ async function getResourceStats(resource, check90Day = true) {
  * Get NTFY settings for a user
  */
 async function getUserNtfyEnabled(userId) {
-  console.log(`[AlertEngine] getUserNtfyEnabled() called for userId: ${userId}`);
+  logger.info(`[AlertEngine] getUserNtfyEnabled() called for userId: ${userId}`);
   
   const { data, error } = await supabase
     .from('user_subscriptions')
@@ -69,19 +69,19 @@ async function getUserNtfyEnabled(userId) {
     .single();
   
   if (error) {
-    console.error(`[AlertEngine] ❌ Error fetching NTFY settings: ${error.message}`);
-    console.error(`[AlertEngine] Error details:`, JSON.stringify(error));
+    logger.error(`[AlertEngine] ❌ Error fetching NTFY settings: ${error.message}`);
+    logger.error(`[AlertEngine] Error details:`, JSON.stringify(error));
     return { enabled: false, graphEnabled: true };
   }
   
   if (!data) {
-    console.log(`[AlertEngine] ⚠️ No subscription record found for userId: ${userId}`);
+    logger.info(`[AlertEngine] ⚠️ No subscription record found for userId: ${userId}`);
     return { enabled: false, graphEnabled: true };
   }
   
-  console.log(`[AlertEngine] ✅ NTFY settings found:`);
-  console.log(`[AlertEngine]   - ntfy_enabled: ${data.ntfy_enabled}`);
-  console.log(`[AlertEngine]   - ntfy_graph_enabled: ${data.ntfy_graph_enabled}`);
+  logger.info(`[AlertEngine] ✅ NTFY settings found:`);
+  logger.info(`[AlertEngine]   - ntfy_enabled: ${data.ntfy_enabled}`);
+  logger.info(`[AlertEngine]   - ntfy_graph_enabled: ${data.ntfy_graph_enabled}`);
   
   return {
     enabled: data?.ntfy_enabled || false,
@@ -93,7 +93,7 @@ async function getUserNtfyEnabled(userId) {
  * Check all active alerts after a price fetch
  */
 async function checkAlerts() {
-  console.log('[AlertEngine] Checking alerts after price fetch...');
+  logger.info('[AlertEngine] Checking alerts after price fetch...');
 
   try {
     // Get all active alerts (simple query, no joins)
@@ -104,11 +104,11 @@ async function checkAlerts() {
 
     if (error) throw error;
     if (!alerts || alerts.length === 0) {
-      console.log('[AlertEngine] No active alerts');
+      logger.info('[AlertEngine] No active alerts');
       return;
     }
 
-    console.log(`[AlertEngine] Checking ${alerts.length} alerts`);
+    logger.info(`[AlertEngine] Checking ${alerts.length} alerts`);
 
     // Group by resource to get stats once per resource
     const alertsByResource = {};
@@ -123,7 +123,7 @@ async function checkAlerts() {
     }
 
   } catch (error) {
-    console.error('[AlertEngine] Error:', error.message);
+    logger.error('[AlertEngine] Error:', error.message);
   }
 }
 
@@ -136,13 +136,13 @@ async function checkResourceAlerts(resource, alerts) {
     const stats = await getResourceStats(resource);
 
     if (!stats) {
-      console.log(`[AlertEngine] No stats for ${resource}`);
+      logger.info(`[AlertEngine] No stats for ${resource}`);
       return;
     }
 
     const currentPct = parseFloat(stats.percent_vs_avg.toFixed(2));
 
-    console.log(`[AlertEngine] ${resource}: current=${currentPct}%, avg=${stats.avg_price?.toFixed(4)}, cur=${stats.current_price?.toFixed(4)}`);
+    logger.info(`[AlertEngine] ${resource}: current=${currentPct}%, avg=${stats.avg_price?.toFixed(4)}, cur=${stats.current_price?.toFixed(4)}`);
 
     for (const alert of alerts) {
       const thresholdHigh = alert.threshold_high || 10;
@@ -169,27 +169,27 @@ async function checkResourceAlerts(resource, alerts) {
         }
 
         if (withinCooldown) {
-          console.log(`[AlertEngine] ${resource}: alert triggered (${isRiseAlert ? 'RISE' : 'FALL'}) but within 12h cooldown, skipping`);
+          logger.info(`[AlertEngine] ${resource}: alert triggered (${isRiseAlert ? 'RISE' : 'FALL'}) but within 12h cooldown, skipping`);
           continue;
         }
 
-        console.log(`[AlertEngine] 🚨 TRIGGERED: ${resource} at ${currentPct}% (${isRiseAlert ? 'RISE' : 'FALL'}, thresholds: +${thresholdHigh}/${thresholdLow}%)`);
+        logger.info(`[AlertEngine] 🚨 TRIGGERED: ${resource} at ${currentPct}% (${isRiseAlert ? 'RISE' : 'FALL'}, thresholds: +${thresholdHigh}/${thresholdLow}%)`);
 
         // Send Telegram alert with chart
         await sendTelegramAlert(alert.user_id, resource, currentPct, stats, thresholdHigh, thresholdLow);
 
         // Send NTFY notification if enabled
         const ntfySettings = await getUserNtfyEnabled(alert.user_id);
-        console.log(`[AlertEngine] NTFY check for user ${alert.user_id}: enabled=${ntfySettings.enabled}, graphEnabled=${ntfySettings.graphEnabled}`);
+        logger.info(`[AlertEngine] NTFY check for user ${alert.user_id}: enabled=${ntfySettings.enabled}, graphEnabled=${ntfySettings.graphEnabled}`);
         if (ntfySettings.enabled) {
           try {
             await sendNtfyAlertNotification(alert.user_id, resource, currentPct, stats, thresholdHigh, thresholdLow, ntfySettings.graphEnabled);
-            console.log(`[AlertEngine] NTFY notification sent for ${resource}`);
+            logger.info(`[AlertEngine] NTFY notification sent for ${resource}`);
           } catch (ntfyErr) {
-            console.error(`[AlertEngine] NTFY error for ${resource}:`, ntfyErr.message);
+            logger.error(`[AlertEngine] NTFY error for ${resource}:`, ntfyErr.message);
           }
         } else {
-          console.log(`[AlertEngine] NTFY skipped for ${resource} - not enabled`);
+          logger.info(`[AlertEngine] NTFY skipped for ${resource} - not enabled`);
         }
 
         // Update last_notified based on direction
@@ -211,12 +211,12 @@ async function checkResourceAlerts(resource, alerts) {
           .eq('id', alert.id);
 
       } else {
-        console.log(`[AlertEngine] ${resource}: ${currentPct}% within thresholds (+${thresholdHigh}/${thresholdLow}%)`);
+        logger.info(`[AlertEngine] ${resource}: ${currentPct}% within thresholds (+${thresholdHigh}/${thresholdLow}%)`);
       }
     }
 
   } catch (error) {
-    console.error(`[AlertEngine] Error checking ${resource}:`, error.message);
+    logger.error(`[AlertEngine] Error checking ${resource}:`, error.message);
   }
 }
 
@@ -249,7 +249,7 @@ async function sendTelegramAlert(userId, resource, currentPct, stats, thresholdH
 
       const sent = await sendTelegramPhoto(userId, chartDataUrl, caption);
       if (!sent) {
-        console.error(`[AlertEngine] sendTelegramPhoto failed for ${userId}, falling back to text`);
+        logger.error(`[AlertEngine] sendTelegramPhoto failed for ${userId}, falling back to text`);
         const msg = formatAlertMessage(resource, currentPct, stats, thresholdHigh, thresholdLow);
         await sendTelegramMessage(userId, msg);
       }
@@ -260,7 +260,7 @@ async function sendTelegramAlert(userId, resource, currentPct, stats, thresholdH
     }
 
   } catch (error) {
-    console.error('[AlertEngine] sendTelegramAlert error:', error.message);
+    logger.error('[AlertEngine] sendTelegramAlert error:', error.message);
     const msg = formatAlertMessage(resource, currentPct, stats, thresholdHigh, thresholdLow);
     await sendTelegramMessage(userId, msg);
   }
@@ -270,33 +270,33 @@ async function sendTelegramAlert(userId, resource, currentPct, stats, thresholdH
  * Send NTFY notification (with optional chart)
  */
 async function sendNtfyAlertNotification(userId, resource, currentPct, stats, thresholdHigh, thresholdLow, includeGraph) {
-  console.log(`[AlertEngine] sendNtfyAlertNotification() ===`);
-  console.log(`[AlertEngine]   userId: ${userId}`);
-  console.log(`[AlertEngine]   resource: ${resource}`);
-  console.log(`[AlertEngine]   currentPct: ${currentPct}%`);
-  console.log(`[AlertEngine]   thresholdHigh: ${thresholdHigh}%`);
-  console.log(`[AlertEngine]   thresholdLow: ${thresholdLow}%`);
-  console.log(`[AlertEngine]   includeGraph: ${includeGraph}`);
+  logger.info(`[AlertEngine] sendNtfyAlertNotification() ===`);
+  logger.info(`[AlertEngine]   userId: ${userId}`);
+  logger.info(`[AlertEngine]   resource: ${resource}`);
+  logger.info(`[AlertEngine]   currentPct: ${currentPct}%`);
+  logger.info(`[AlertEngine]   thresholdHigh: ${thresholdHigh}%`);
+  logger.info(`[AlertEngine]   thresholdLow: ${thresholdLow}%`);
+  logger.info(`[AlertEngine]   includeGraph: ${includeGraph}`);
   
   try {
     const topic = getUserNtfyTopic(userId);
-    console.log(`[AlertEngine] Generated topic: ${topic}`);
+    logger.info(`[AlertEngine] Generated topic: ${topic}`);
     
     const message = formatNtfyAlert(resource, currentPct, stats, thresholdHigh, thresholdLow);
-    console.log(`[AlertEngine] Formatted message:\n${message}`);
+    logger.info(`[AlertEngine] Formatted message:\n${message}`);
 
     // Always send text-only notification (no images)
-    console.log(`[AlertEngine] Sending text-only notification...`);
+    logger.info(`[AlertEngine] Sending text-only notification...`);
     const result = await sendNtfyNotification(topic, message, {
       title: `${resource.toUpperCase()} Alert`,
       tags: 'warning'
     });
-    console.log(`[AlertEngine] sendNtfyNotification result: ${result}`);
+    logger.info(`[AlertEngine] sendNtfyNotification result: ${result}`);
     return result;
 
   } catch (error) {
-    console.error(`[AlertEngine] ❌ sendNtfyAlertNotification error: ${error.message}`);
-    console.error(`[AlertEngine] Error stack:`, error.stack);
+    logger.error(`[AlertEngine] ❌ sendNtfyAlertNotification error: ${error.message}`);
+    logger.error(`[AlertEngine] Error stack:`, error.stack);
   }
 }
 

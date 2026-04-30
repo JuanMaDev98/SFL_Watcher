@@ -33,7 +33,7 @@ async function getFlowerPrice() {
     if (price <= 0) throw new Error('Invalid price');
     return price;
   } catch (e) {
-    console.error('[subscriptionService] getFlowerPrice error:', e.message);
+    logger.error('[subscriptionService] getFlowerPrice error:', e.message);
     return null;
   }
 }
@@ -204,6 +204,7 @@ async function addSubscriptionDays(userId, days) {
   }
 
   let newEndsAt;
+  const now = new Date();
   if (sub.status === 'active' && sub.subscription_ends_at) {
     const currentEnds = new Date(sub.subscription_ends_at);
     if (currentEnds > now) {

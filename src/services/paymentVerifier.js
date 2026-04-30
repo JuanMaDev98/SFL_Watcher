@@ -28,12 +28,12 @@ async function alchemyFetch(network, method, params) {
     });
     const data = await resp.json();
     if (data.error) {
-      console.error(`[alchemyFetch] ${method} error:`, data.error);
+      logger.error(`[alchemyFetch] ${method} error:`, data.error);
       return null;
     }
     return data.result;
   } catch (e) {
-    console.error(`[alchemyFetch] ${method} network=${network}:`, e.message);
+    logger.error(`[alchemyFetch] ${method} network=${network}:`, e.message);
     return null;
   }
 }
@@ -105,7 +105,7 @@ async function verifyWalletPayment(userWalletAddress, requiredAmountFlower, netw
       // Get all Transfer events from user wallet to payment address
       const logs = await getTokenTransfers(network, userWalletAddress);
 
-      console.log(`[verifyWalletPayment] ${network}: found ${logs.length} transfer logs for ${userWalletAddress}`);
+      logger.info(`[verifyWalletPayment] ${network}: found ${logs.length} transfer logs for ${userWalletAddress}`);
 
       for (const log of logs) {
         // Parse amount from log data
@@ -124,7 +124,7 @@ async function verifyWalletPayment(userWalletAddress, requiredAmountFlower, netw
           const blockNum = log.blockNumber;
           const logIndex = log.logIndex;
 
-          console.log(`[verifyWalletPayment] Found valid tx ${txHash}: ${amount} >= ${requiredAmountWei}`);
+          logger.info(`[verifyWalletPayment] Found valid tx ${txHash}: ${amount} >= ${requiredAmountWei}`);
 
           return {
             success: true,
@@ -147,7 +147,7 @@ async function verifyWalletPayment(userWalletAddress, requiredAmountFlower, netw
         }
       }
     } catch (e) {
-      console.error(`[verifyWalletPayment] ${network} error:`, e.message);
+      logger.error(`[verifyWalletPayment] ${network} error:`, e.message);
       continue;
     }
   }
