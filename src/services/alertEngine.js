@@ -2,6 +2,7 @@ const supabase = require('../lib/supabase');
 const { sendTelegramMessage, formatAlertMessage, sendTelegramPhoto } = require('./telegramService');
 const { generateChartDataUrl, generateChartBuffer } = require('./chartService');
 const { sendNtfyNotification, formatNtfyAlert, getUserNtfyTopic } = require('./ntfyService');
+const logger = require('../utils/logger');
 
 /**
  * Get stats for a resource using direct query

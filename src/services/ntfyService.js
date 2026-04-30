@@ -8,6 +8,7 @@
 
 const NTFY_BASE = 'https://ntfy.sh';
 const CATBOX_BASE = 'https://catbox.fyi';
+const logger = require('../utils/logger');
 
 /**
  * Send notification via NTFY
