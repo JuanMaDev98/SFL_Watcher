@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getAllPrices, getResourceStats, getResourceHistory } = require('../services/priceFetcher');
+const logger = require('../utils/logger');
 
 // GET /api/prices - Get all resources with stats
 router.get('/', async (req, res) => {

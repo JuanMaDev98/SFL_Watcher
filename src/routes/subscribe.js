@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const supabase = require('../lib/supabase');
+const logger = require('../utils/logger');
 
 // POST /api/subscribe - Save FCM token
 router.post('/', async (req, res) => {

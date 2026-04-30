@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const supabase = require('../lib/supabase');
+const logger = require('../utils/logger');
 
 /**
  * POST /api/alerts - Create or update alert with high/low thresholds
