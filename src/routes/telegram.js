@@ -449,7 +449,7 @@ async function processGraph(chatId, resource) {
     const sign = stats.pct >= 0 ? '+' : '';
 
     const caption =
-      `<b>${resource.toUpperCase()}</b>\n\n` +
+      `<b>${resource.toUpperCase()}</b>${truncatedWarning}\n\n` +
       `💰 Current: <code>${stats.current.toFixed(6)}</code>\n` +
       `📊 Min: ${stats.min.toFixed(6)} | Max: ${stats.max.toFixed(6)}\n` +
       `📐 Avg: ${stats.avg.toFixed(6)}\n` +
@@ -457,7 +457,13 @@ async function processGraph(chatId, resource) {
       `📈 Data Points: ${history.length}`;
 
     const { generateChartDataUrl } = require('../services/chartService');
-    const { chartConfig } = generateChartDataUrl(resource, history);
+    const { chartConfig, pointsUsed } = generateChartDataUrl(resource, history);
+    
+    // Show warning if data was truncated
+    const truncatedWarning = pointsUsed < history.length 
+      ? `\n⚠️ Showing last ${pointsUsed} of ${history.length} points` 
+      : '';
+    
     const arrayBuffer = await generateChartBuffer(chartConfig);
     
     if (!arrayBuffer || arrayBuffer.byteLength === 0) {

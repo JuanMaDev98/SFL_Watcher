@@ -1,24 +1,37 @@
 /**
  * Chart generation service using QuickChart POST API
- * No URL length limit - config sent as JSON body
+ * Optimized for Vercel serverless - limited data points
  */
+
 const QUICKCHART_URL = 'https://quickchart.io/chart';
+
+// Limit data points to avoid QuickChart 400 error
+const MAX_POINTS = 150;
 
 function generateChartDataUrl(resource, history) {
   if (!history || history.length === 0) {
     return null;
   }
 
-  const prices = history.map(h => parseFloat(h.price));
+  // Limit history to last MAX_POINTS points
+  const limitedHistory = history.length > MAX_POINTS 
+    ? history.slice(-MAX_POINTS) 
+    : history;
+
+  const prices = limitedHistory.map(h => parseFloat(h.price));
   const minPrice = Math.min(...prices);
   const maxPrice = Math.max(...prices);
   const avgPrice = prices.reduce((a, b) => a + b, 0) / prices.length;
   const currentPrice = prices[prices.length - 1];
 
-  // Labels = dates
-  const labels = history.map(h => {
+  // Labels = dates (simplified - no time if many points)
+  const useTime = limitedHistory.length <= 50;
+  const labels = limitedHistory.map(h => {
     const d = new Date(h.created_at);
-    return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+    if (useTime) {
+      return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+    }
+    return `${d.getMonth() + 1}/${d.getDate()}`;
   });
 
   // Find min/max annotation positions
@@ -37,7 +50,7 @@ function generateChartDataUrl(resource, history) {
         backgroundColor: 'rgba(46, 125, 50, 0.1)',
         fill: true,
         tension: 0.3,
-        pointRadius: 2,
+        pointRadius: prices.length > 50 ? 0 : 2,
         pointBackgroundColor: '#2e7d32',
         pointBorderColor: '#ffffff',
         pointBorderWidth: 1
@@ -52,24 +65,24 @@ function generateChartDataUrl(resource, history) {
         tension: 0,
         pointRadius: 0
       }, {
-        // MIN marker - triangle pointing down (↓)
+        // MIN marker - triangle pointing down
         label: 'MIN',
         data: prices.map((p, i) => i === minIdx ? minPrice : null),
         borderColor: '#0d47a1',
         backgroundColor: '#2196f3',
-        pointRadius: 10,
+        pointRadius: 8,
         pointStyle: 'triangle',
         showLine: false,
         fill: true
       }, {
-        // MAX marker - triangle pointing up (↑)
+        // MAX marker - triangle pointing up
         label: 'MAX',
         data: prices.map((p, i) => i === maxIdx ? maxPrice : null),
         borderColor: '#bf360c',
         backgroundColor: '#ff5722',
-        pointRadius: 10,
+        pointRadius: 8,
         pointStyle: 'triangle',
-        rotation: 180, // Rotate 180° to point upward
+        rotation: 180,
         showLine: false,
         fill: true
       }]
@@ -89,8 +102,8 @@ function generateChartDataUrl(resource, history) {
       },
       scales: {
         x: {
-          title: { display: true, text: 'DATE / TIME', color: '#555', font: { size: 11, bold: true } },
-          ticks: { maxTicksLimit: 8, font: { size: 10 }, color: '#555' },
+          title: { display: true, text: useTime ? 'DATE / TIME' : 'DATE', color: '#555', font: { size: 11, bold: true } },
+          ticks: { maxTicksLimit: useTime ? 8 : 10, font: { size: 10 }, color: '#555' },
           grid: { color: '#e8e8e8' }
         },
         y: {
@@ -103,7 +116,7 @@ function generateChartDataUrl(resource, history) {
     }
   };
 
-  return { chartConfig };
+  return { chartConfig, pointsUsed: limitedHistory.length };
 }
 
 function generateChartBuffer(chartConfig) {
