@@ -107,16 +107,18 @@ function generateChartDataUrl(resource, history) {
 }
 
 function generateChartBuffer(chartConfig) {
-  // This returns a promise - caller must await
-  return fetch(QUICKCHART_URL, {
+  // QuickChart POST expects config directly as JSON body
+  // format, width, height are query parameters
+  const params = new URLSearchParams({
+    format: 'png',
+    width: 640,
+    height: 380
+  });
+  
+  return fetch(`${QUICKCHART_URL}?${params}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chart: chartConfig,
-      format: 'png',
-      width: 640,
-      height: 380
-    })
+    body: JSON.stringify(chartConfig)
   }).then(res => {
     if (!res.ok) throw new Error(`QuickChart error: ${res.status}`);
     return res.arrayBuffer();
