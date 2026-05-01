@@ -317,31 +317,34 @@ router.post('/webhook', async (req, res) => {
 
 async function processPriceSimple(chatId, resource) {
   try {
-    const { getResourceHistory } = require('../services/priceFetcher');
-    const history = await getResourceHistory(resource, 90);
+    const { getResourceStats } = require('../services/priceFetcher');
+    const stats = await getResourceStats(resource);
 
-    if (!history || history.length === 0) {
-      await sendTelegramAwait(chatId, `❌ No data for ${resource}.\nWait for cron to collect data.`);
+    if (!stats) {
+      await sendTelegramAwait(chatId, `❌ No data for ${resource}.
+Wait for cron to collect data.`);
       return;
     }
 
-    const prices = history.map(h => parseFloat(h.price));
-    const current = prices[prices.length - 1];
-    const min = Math.min(...prices);
-    const max = Math.max(...prices);
-    const avg = prices.reduce((a, b) => a + b, 0) / prices.length;
-    const pct = ((current - avg) / avg * 100).toFixed(2);
-
+    const { current_price, avg_price, min_price, max_price, percent_vs_avg, snapshot_count } = stats;
+    const pct = percent_vs_avg;
     const emoji = pct >= 0 ? '📈' : '📉';
     const sign = pct >= 0 ? '+' : '';
 
     await sendTelegramAwait(chatId,
-      `<b>${resource.toUpperCase()}</b>\n\n` +
-      `💰 Current: <code>${current.toFixed(6)}</code>\n` +
-      `📊 Min: ${min.toFixed(6)} | Max: ${max.toFixed(6)}\n` +
-      `📐 Avg: ${avg.toFixed(6)}\n` +
-      `${emoji} vs Avg: ${sign}${pct}%\n\n` +
-      `📈 Data Points: ${history.length}`
+      `<b>${resource.toUpperCase()}</b>
+
+` +
+      `💰 Current: <code>${current_price.toFixed(6)}</code>
+` +
+      `📊 Min: ${min_price.toFixed(6)} | Max: ${max_price.toFixed(6)}
+` +
+      `📐 Avg: ${avg_price.toFixed(6)}
+` +
+      `${emoji} vs Avg: ${sign}${pct.toFixed(2)}%
+
+` +
+      `📈 Data Points: ${snapshot_count}`
     );
   } catch (error) {
     logger.error('[price] error: ' + error.message);
