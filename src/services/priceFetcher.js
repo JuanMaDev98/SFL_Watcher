@@ -73,7 +73,7 @@ async function getResourceStats(resource) {
   
   const stats = data[0];
   return {
-    resource,
+    resource: stats.p_resource || resource,
     current_price: parseFloat(stats.current_price),
     avg_price: parseFloat(stats.avg_price),
     min_price: parseFloat(stats.min_price),
