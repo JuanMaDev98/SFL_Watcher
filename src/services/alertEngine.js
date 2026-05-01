@@ -5,10 +5,48 @@ const { sendNtfyNotification, formatNtfyAlert, getUserNtfyTopic } = require('./n
 const logger = require('../utils/logger');
 
 /**
- * Get stats for a resource using direct query
- * Also checks if current price is min/max in last 90 days
+ * Get stats for a resource using optimized SQL function
+ * This replaces loading all rows into memory
  */
 async function getResourceStats(resource, check90Day = true) {
+  try {
+    // Use the efficient SQL function
+    const { data, error } = await supabase
+      .rpc('get_price_stats', { 
+        resource_name: resource,
+        days_limit: 90 
+      });
+
+    if (error) {
+      // Fallback to direct query if RPC fails
+      logger.warn(`[AlertEngine] RPC failed, using fallback query: ${error.message}`);
+      return getResourceStatsFallback(resource, check90Day);
+    }
+
+    if (!data || data.length === 0) return null;
+
+    const stats = data[0];
+    return {
+      resource,
+      current_price: parseFloat(stats.current_price),
+      avg_price: parseFloat(stats.avg_price),
+      min_price: parseFloat(stats.min_price),
+      max_price: parseFloat(stats.max_price),
+      percent_vs_avg: parseFloat(stats.percent_vs_avg),
+      snapshot_count: parseInt(stats.snapshot_count),
+      is90DayMin: stats.is_90day_min,
+      is90DayMax: stats.is_90day_max
+    };
+  } catch (e) {
+    logger.error(`[AlertEngine] getResourceStats error: ${e.message}`);
+    return getResourceStatsFallback(resource, check90Day);
+  }
+}
+
+/**
+ * Fallback: direct query for stats (less efficient but works without RPC)
+ */
+async function getResourceStatsFallback(resource, check90Day = true) {
   const ninetyDaysAgo = new Date();
   ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 

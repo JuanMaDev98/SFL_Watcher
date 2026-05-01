@@ -58,14 +58,29 @@ async function fetchPrices() {
 }
 
 /**
- * Get stats for a specific resource
+ * Get stats for a specific resource using SQL function
  */
 async function getResourceStats(resource) {
   const { data, error } = await supabase
-    .rpc('get_price_stats', { resource_name: resource });
+    .rpc('get_price_stats', { resource_name: resource, days_limit: 90 });
 
-  if (error) throw error;
-  return data[0];
+  if (error) {
+    logger.error('getResourceStats RPC error:', error.message);
+    throw error;
+  }
+  
+  if (!data || data.length === 0) return null;
+  
+  const stats = data[0];
+  return {
+    resource,
+    current_price: parseFloat(stats.current_price),
+    avg_price: parseFloat(stats.avg_price),
+    min_price: parseFloat(stats.min_price),
+    max_price: parseFloat(stats.max_price),
+    percent_vs_avg: parseFloat(stats.percent_vs_avg),
+    snapshot_count: parseInt(stats.snapshot_count)
+  };
 }
 
 /**
