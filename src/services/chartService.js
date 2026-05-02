@@ -9,6 +9,7 @@
  *   automatically when new snapshots arrive.
  */
 
+const fs = require('fs');
 const path = require('path');
 const { Resvg } = require('@resvg/resvg-js');
 
@@ -24,6 +25,9 @@ const FONT_FILES = [
   path.resolve(__dirname, '../../node_modules/@fontsource/inter/files/inter-latin-600-normal.woff'),
   path.resolve(__dirname, '../../node_modules/@fontsource/inter/files/inter-latin-700-normal.woff'),
 ];
+const FONT_BUFFERS = FONT_FILES
+  .filter(file => fs.existsSync(file))
+  .map(file => fs.readFileSync(file));
 
 function escapeXml(value) {
   return String(value)
@@ -374,8 +378,9 @@ async function generateChartBuffer(chartConfig, options = {}) {
     fitTo: { mode: 'width', value: options.width || chartConfig.width || DEFAULT_WIDTH },
     background: options.backgroundColor || 'rgba(0,0,0,0)',
     font: {
-      fontFiles: FONT_FILES,
-      loadSystemFonts: true,
+      fontFiles: FONT_BUFFERS.length ? undefined : FONT_FILES,
+      fontBuffers: FONT_BUFFERS.length ? FONT_BUFFERS : undefined,
+      loadSystemFonts: false,
       defaultFontFamily: 'Inter',
     },
   });
