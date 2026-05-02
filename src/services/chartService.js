@@ -71,6 +71,17 @@ function formatDateTimeLabel(iso) {
   return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${hh}:${mm}`;
 }
 
+function measureTextWidth(text, fontSize = 16) {
+  if (!PRIMARY_FONT || text == null) return 0;
+  const content = String(text);
+  if (!content.trim()) return 0;
+
+  const run = PRIMARY_FONT.layout(content);
+  const unitsPerEm = PRIMARY_FONT.unitsPerEm || 1000;
+  const scale = fontSize / unitsPerEm;
+  return run.positions.reduce((sum, pos) => sum + (pos.xAdvance || 0), 0) * scale;
+}
+
 function buildTextPath(text, options = {}) {
   if (!PRIMARY_FONT || text == null) return '';
 
@@ -107,6 +118,10 @@ function buildTextPath(text, options = {}) {
   }
 
   return parts.join('');
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }
 
 function calculateStats(history) {
@@ -289,7 +304,7 @@ function buildChartSvg(resource, rawHistory, options = {}) {
 
   const width = options.width || DEFAULT_WIDTH;
   const height = options.height || DEFAULT_HEIGHT;
-  const plot = { left: 88, right: 38, top: 68, bottom: 72 };
+  const plot = { left: 88, right: 38, top: 92, bottom: 96 };
   plot.width = width - plot.left - plot.right;
   plot.height = height - plot.top - plot.bottom;
 
@@ -323,11 +338,10 @@ function buildChartSvg(resource, rawHistory, options = {}) {
 
   const xGrid = ticks.xValues.map(t => `
     <line x1="${t.x.toFixed(2)}" y1="${plot.top}" x2="${t.x.toFixed(2)}" y2="${plot.top + plot.height}" stroke="#1d2633" stroke-width="1" />
-    ${buildTextPath(t.label, { x: t.x, y: height - 26, fontSize: 14, fill: '#9fb0c3', anchor: 'middle' })}`).join('');
+    ${buildTextPath(t.label, { x: t.x, y: height - 40, fontSize: 13, fill: '#9fb0c3', anchor: 'middle' })}`).join('');
 
-  const weeklyGrid = weeklyMarkers.map((marker, index) => `
-    <line x1="${marker.x.toFixed(2)}" y1="${plot.top}" x2="${marker.x.toFixed(2)}" y2="${plot.top + plot.height}" stroke="#3b82f6" stroke-width="1.2" stroke-dasharray="4 6" opacity="0.75" />
-    ${index > 0 ? buildTextPath(`Sun ${marker.label}`, { x: marker.x + 4, y: plot.top + 18, fontSize: 12, fill: '#93c5fd' }) : ''}`
+  const weeklyGrid = weeklyMarkers.map(marker => `
+    <line x1="${marker.x.toFixed(2)}" y1="${plot.top}" x2="${marker.x.toFixed(2)}" y2="${plot.top + plot.height}" stroke="#3b82f6" stroke-width="1.2" stroke-dasharray="4 6" opacity="0.75" />`
   ).join('');
 
   return `
@@ -345,11 +359,11 @@ function buildChartSvg(resource, rawHistory, options = {}) {
     <rect x="0" y="0" width="${width}" height="${height}" fill="#131722" rx="18" />
     <rect x="18" y="18" width="${width - 36}" height="${height - 36}" fill="#161d29" rx="16" stroke="#273142" />
 
-    ${buildTextPath(title, { x: 36, y: 44, fontSize: 30, fill: '#f4f7fb' })}
-    ${buildTextPath(subtitle, { x: 36, y: 68, fontSize: 15, fill: '#8fa0b5' })}
+    ${buildTextPath(title, { x: 36, y: 40, fontSize: 28, fill: '#f4f7fb' })}
+    ${buildTextPath(subtitle, { x: 36, y: 62, fontSize: 14, fill: '#8fa0b5' })}
 
-    ${buildTextPath('Current', { x: width - 36, y: 44, fontSize: 16, fill: '#8fa0b5', anchor: 'end' })}
-    ${buildTextPath(formatPrice(rawStats.current), { x: width - 36, y: 68, fontSize: 28, fill: trendColor, anchor: 'end' })}
+    ${buildTextPath('Current', { x: width - 36, y: 38, fontSize: 15, fill: '#8fa0b5', anchor: 'end' })}
+    ${buildTextPath(formatPrice(rawStats.current), { x: width - 36, y: 62, fontSize: 26, fill: trendColor, anchor: 'end' })}
 
     ${yGrid}
     ${xGrid}
@@ -364,14 +378,26 @@ function buildChartSvg(resource, rawHistory, options = {}) {
     <circle cx="${currentPoint.x.toFixed(2)}" cy="${currentPoint.y.toFixed(2)}" r="4.8" fill="${trendColor}" stroke="#ffffff" stroke-width="1.5" />
 
     ${minPoint ? `<circle cx="${minPoint.x.toFixed(2)}" cy="${minPoint.y.toFixed(2)}" r="4.2" fill="#60a5fa" />` : ''}
-    ${minPoint ? buildTextPath(`MIN ${formatPrice(rawStats.min, 6)}`, { x: Math.min(minPoint.x + 8, width - 160), y: Math.max(minPoint.y - 8, 82), fontSize: 13, fill: '#93c5fd' }) : buildTextPath(`MIN ${formatPrice(rawStats.min, 6)}`, { x: 36, y: 88, fontSize: 13, fill: '#93c5fd' })}
+    ${minPoint ? (() => {
+      const text = `MIN ${formatPrice(rawStats.min, 6)}`;
+      const widthNeeded = measureTextWidth(text, 13);
+      const x = clamp(minPoint.x + 8, plot.left + 6, width - widthNeeded - 12);
+      const y = minPoint.y >= plot.top + plot.height - 18 ? minPoint.y - 10 : minPoint.y + 18;
+      return buildTextPath(text, { x, y, fontSize: 13, fill: '#93c5fd' });
+    })() : buildTextPath(`MIN ${formatPrice(rawStats.min, 6)}`, { x: 36, y: 82, fontSize: 13, fill: '#93c5fd' })}
 
     ${maxPoint ? `<circle cx="${maxPoint.x.toFixed(2)}" cy="${maxPoint.y.toFixed(2)}" r="4.2" fill="#fb7185" />` : ''}
-    ${maxPoint ? buildTextPath(`MAX ${formatPrice(rawStats.max, 6)}`, { x: Math.min(maxPoint.x + 8, width - 160), y: Math.max(maxPoint.y - 8, 82), fontSize: 13, fill: '#fda4af' }) : buildTextPath(`MAX ${formatPrice(rawStats.max, 6)}`, { x: 36, y: 106, fontSize: 13, fill: '#fda4af' })}
+    ${maxPoint ? (() => {
+      const text = `MAX ${formatPrice(rawStats.max, 6)}`;
+      const widthNeeded = measureTextWidth(text, 13);
+      const x = clamp(maxPoint.x + 8, plot.left + 6, width - widthNeeded - 12);
+      const y = maxPoint.y <= plot.top + 18 ? maxPoint.y + 18 : maxPoint.y - 8;
+      return buildTextPath(text, { x, y, fontSize: 13, fill: '#fda4af' });
+    })() : buildTextPath(`MAX ${formatPrice(rawStats.max, 6)}`, { x: 36, y: 98, fontSize: 13, fill: '#fda4af' })}
 
-    ${buildTextPath(`vs AVG: ${rawStats.pct >= 0 ? '+' : ''}${rawStats.pct}%`, { x: 36, y: height - 22, fontSize: 14, fill: '#8fa0b5' })}
-    ${buildTextPath('Weekly separators every Sunday • real-time X axis', { x: width / 2, y: height - 22, fontSize: 13, fill: '#93c5fd', anchor: 'middle' })}
-    ${buildTextPath(prepared.aggregated ? 'Hourly normalized for 90d view • current exact' : 'Raw timestamps • current exact', { x: width - 36, y: height - 22, fontSize: 14, fill: '#8fa0b5', anchor: 'end' })}
+    ${buildTextPath(`vs AVG: ${rawStats.pct >= 0 ? '+' : ''}${rawStats.pct}%`, { x: 36, y: height - 14, fontSize: 13, fill: '#8fa0b5' })}
+    ${buildTextPath('Weekly separators every Sunday • real-time X axis', { x: width / 2, y: height - 14, fontSize: 12, fill: '#93c5fd', anchor: 'middle' })}
+    ${buildTextPath(prepared.aggregated ? 'Hourly normalized for 90d view • current exact' : 'Raw timestamps • current exact', { x: width - 36, y: height - 14, fontSize: 13, fill: '#8fa0b5', anchor: 'end' })}
   </svg>`;
 }
 
