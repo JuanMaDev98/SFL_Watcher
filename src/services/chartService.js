@@ -288,22 +288,31 @@ function buildTicks(history, stats, plot) {
 
 function buildWeeklyMarkers(history, plot) {
   const markers = [];
-  const seen = new Set();
   const startMs = new Date(history[0].created_at).getTime();
   const endMs = new Date(history[history.length - 1].created_at).getTime();
   const duration = Math.max(endMs - startMs, 1);
 
-  for (const row of history) {
-    const date = new Date(row.created_at);
-    if (date.getUTCDay() !== 0 || date.getUTCHours() !== 0) continue;
+  const startDate = new Date(startMs);
+  const utcStartDay = new Date(Date.UTC(
+    startDate.getUTCFullYear(),
+    startDate.getUTCMonth(),
+    startDate.getUTCDate(),
+    0,
+    0,
+    0,
+    0,
+  ));
 
-    const weekKey = `${date.getUTCFullYear()}-${date.getUTCMonth()}-${date.getUTCDate()}`;
-    if (seen.has(weekKey)) continue;
-    seen.add(weekKey);
+  const offsetToMonday = (8 - utcStartDay.getUTCDay()) % 7;
+  let mondayMs = utcStartDay.getTime() + (offsetToMonday * 24 * 60 * 60 * 1000);
 
-    const x = plot.left + ((date.getTime() - startMs) / duration) * plot.width;
+  for (; mondayMs <= endMs; mondayMs += 7 * 24 * 60 * 60 * 1000) {
+    if (mondayMs < startMs) continue;
+
+    const x = plot.left + ((mondayMs - startMs) / duration) * plot.width;
+    const date = new Date(mondayMs);
     const label = `${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
-    markers.push({ x, label });
+    markers.push({ x, label, timestamp: mondayMs });
   }
 
   return markers;
@@ -419,7 +428,7 @@ function buildChartSvg(resource, rawHistory, options = {}) {
     ${maxPoint ? buildTriangleMarker(maxPoint.x, maxPoint.y, 'up', '#fb7185', 6.5) : ''}
 
     ${buildTextPath(`vs AVG: ${rawStats.pct >= 0 ? '+' : ''}${rawStats.pct}%`, { x: 36, y: height - 14, fontSize: 13, fill: '#8fa0b5' })}
-    ${buildTextPath('Weekly separators every Sunday • real-time X axis', { x: width / 2, y: height - 14, fontSize: 12, fill: '#93c5fd', anchor: 'middle' })}
+    ${buildTextPath('Weekly separators every Monday - real-time X axis', { x: width / 2, y: height - 14, fontSize: 12, fill: '#93c5fd', anchor: 'middle' })}
     ${buildTextPath(prepared.aggregated ? 'Hourly normalized for 90d view • current exact' : 'Raw timestamps • current exact', { x: width - 36, y: height - 14, fontSize: 13, fill: '#8fa0b5', anchor: 'end' })}
   </svg>`;
 }
