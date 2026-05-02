@@ -514,11 +514,16 @@ async function processGraph(chatId, resource) {
       throw new Error('Chart image too large to send');
     }
 
-    const sent = await sendDocumentBuffer(chatId, buffer, caption, `${resource}-chart.png`, 'image/png');
-    logger.info('[graph] send result', { resource, chatId, sent, mode: 'document' });
+    const sent = await sendPhotoBuffer(chatId, buffer, caption, `${resource}-chart.png`, 'image/png');
+    logger.info('[graph] send result', { resource, chatId, sent, mode: 'photo' });
     if (!sent) {
-      logger.error('[graph] sendDocument failed');
-      await sendTelegramAwait(chatId, `Chart failed to send. Try /price ${resource} for text data.`);
+      logger.error('[graph] sendPhoto failed, attempting document fallback');
+      const docSent = await sendDocumentBuffer(chatId, buffer, caption, `${resource}-chart.png`, 'image/png');
+      logger.info('[graph] fallback send result', { resource, chatId, sent: docSent, mode: 'document' });
+      if (!docSent) {
+        logger.error('[graph] sendDocument failed');
+        await sendTelegramAwait(chatId, `Chart failed to send. Try /price ${resource} for text data.`);
+      }
     }
   } catch (error) {
     logger.error('[graph] error: ' + error.message, { stack: error.stack, resource, chatId });

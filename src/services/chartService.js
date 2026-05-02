@@ -23,9 +23,7 @@ const LONG_RANGE_HOURLY_THRESHOLD = 24 * 14; // aggregate when chart spans beyon
 
 const chartCache = new Map();
 const FONT_FILES = [
-  path.resolve(__dirname, '../../node_modules/@fontsource/inter/files/inter-latin-400-normal.woff'),
-  path.resolve(__dirname, '../../node_modules/@fontsource/inter/files/inter-latin-600-normal.woff'),
-  path.resolve(__dirname, '../../node_modules/@fontsource/inter/files/inter-latin-700-normal.woff'),
+  path.resolve(__dirname, '../../assets/fonts/Inter-Variable.ttf'),
 ];
 const FONT_BUFFERS = FONT_FILES
   .filter(file => fs.existsSync(file))
