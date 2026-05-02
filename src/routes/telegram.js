@@ -77,6 +77,7 @@ async function sendPhoto(chatId, photoUrl, caption) {
  */
 async function sendPhotoBuffer(chatId, buffer, caption, filename = 'chart.png', mime = 'image/png') {
   try {
+    logger.info('[sendPhotoBuffer] start', { chatId, filename, mime, bytes: buffer.length, captionLength: caption.length });
     const blob = new Blob([buffer], { type: mime });
     const form = new FormData();
     form.append('chat_id', chatId);
@@ -86,6 +87,7 @@ async function sendPhotoBuffer(chatId, buffer, caption, filename = 'chart.png', 
 
     const resp = await fetch(`${TELEGRAM_API}/sendPhoto`, { method: 'POST', body: form });
     const data = await resp.json();
+    logger.info('[sendPhotoBuffer] response', { ok: resp.ok, status: resp.status, telegramOk: data?.ok, resultType: data?.result?.document ? 'document' : data?.result?.photo ? 'photo' : 'unknown' });
     if (!resp.ok) logger.error('[sendPhotoBuffer] Telegram error: ' + JSON.stringify(data));
     return resp.ok;
   } catch (e) {
@@ -137,6 +139,7 @@ async function sendDocument(chatId, documentUrl, caption, filename = 'chart.png'
  */
 async function sendDocumentBuffer(chatId, buffer, caption, filename = 'chart.png', mime = 'image/png') {
   try {
+    logger.info('[sendDocumentBuffer] start', { chatId, filename, mime, bytes: buffer.length, captionLength: caption.length });
     const blob = new Blob([buffer], { type: mime });
     const form = new FormData();
     form.append('chat_id', chatId);
@@ -146,6 +149,7 @@ async function sendDocumentBuffer(chatId, buffer, caption, filename = 'chart.png
 
     const resp = await fetch(`${TELEGRAM_API}/sendDocument`, { method: 'POST', body: form });
     const data = await resp.json();
+    logger.info('[sendDocumentBuffer] response', { ok: resp.ok, status: resp.status, telegramOk: data?.ok, fileName: data?.result?.document?.file_name, mimeType: data?.result?.document?.mime_type, fileId: data?.result?.document?.file_id || null });
     if (!resp.ok) logger.error('[sendDocumentBuffer] Telegram error: ' + JSON.stringify(data));
     return resp.ok;
   } catch (e) {
@@ -436,11 +440,25 @@ Wait for cron to collect data.`);
 
 async function processGraph(chatId, resource) {
   try {
+    const crypto = require('crypto');
     const { getResourceHistory, getResourceStats } = require('../services/priceFetcher');
     const { generateChartBuffer, generateChartDataUrl } = require('../services/chartService');
 
+    logger.info('[graph] start', { chatId, resource });
     const stats = await getResourceStats(resource);
     const history = await getResourceHistory(resource, 90);
+    logger.info('[graph] data loaded', {
+      chatId,
+      resource,
+      historyPoints: history?.length || 0,
+      statsFound: !!stats,
+      current: stats?.current_price || null,
+      avg: stats?.avg_price || null,
+      min: stats?.min_price || null,
+      max: stats?.max_price || null,
+      firstTs: history?.[0]?.created_at || null,
+      lastTs: history?.[history.length - 1]?.created_at || null,
+    });
 
     if (!history || history.length < 2) {
       await sendTelegramAwait(chatId, `Not enough data for ${resource} (${history?.length || 0} points). Wait for cron to collect more data.`);
@@ -453,6 +471,15 @@ async function processGraph(chatId, resource) {
     }
 
     const { chartConfig, pointsUsed, rawPoints, aggregated } = chartPayload;
+    logger.info('[graph] chart payload ready', {
+      resource,
+      chatId,
+      pointsUsed,
+      rawPoints,
+      aggregated,
+      svgBytes: Buffer.byteLength(chartConfig.svg, 'utf8'),
+      svgSha256: crypto.createHash('sha256').update(chartConfig.svg).digest('hex'),
+    });
     const aggregationNote = aggregated
       ? `\n90d view normalized to hourly points`
       : '';
@@ -475,18 +502,26 @@ async function processGraph(chatId, resource) {
     }
 
     const buffer = Buffer.from(arrayBuffer);
+    logger.info('[graph] png buffer ready', {
+      resource,
+      chatId,
+      pngBytes: buffer.length,
+      pngSha256: crypto.createHash('sha256').update(buffer).digest('hex'),
+      pngSignature: buffer.subarray(0, 8).toString('hex'),
+    });
 
     if (buffer.byteLength > 20 * 1024 * 1024) {
       throw new Error('Chart image too large to send');
     }
 
     const sent = await sendDocumentBuffer(chatId, buffer, caption, `${resource}-chart.png`, 'image/png');
+    logger.info('[graph] send result', { resource, chatId, sent, mode: 'document' });
     if (!sent) {
       logger.error('[graph] sendDocument failed');
       await sendTelegramAwait(chatId, `Chart failed to send. Try /price ${resource} for text data.`);
     }
   } catch (error) {
-    logger.error('[graph] error: ' + error.message);
+    logger.error('[graph] error: ' + error.message, { stack: error.stack, resource, chatId });
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
   }
 }

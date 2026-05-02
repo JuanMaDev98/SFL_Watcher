@@ -9,9 +9,11 @@
  *   automatically when new snapshots arrive.
  */
 
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { Resvg } = require('@resvg/resvg-js');
+const logger = require('../utils/logger');
 
 const DEFAULT_WIDTH = 1100;
 const DEFAULT_HEIGHT = 560;
@@ -28,6 +30,20 @@ const FONT_FILES = [
 const FONT_BUFFERS = FONT_FILES
   .filter(file => fs.existsSync(file))
   .map(file => fs.readFileSync(file));
+const FONT_DEBUG = FONT_FILES.map((file, index) => ({
+  file,
+  exists: fs.existsSync(file),
+  bytes: FONT_BUFFERS[index]?.length || 0,
+}));
+
+function sha256(input) {
+  return crypto.createHash('sha256').update(input).digest('hex');
+}
+
+function countMatches(source, token) {
+  const matches = source.match(token);
+  return matches ? matches.length : 0;
+}
 
 function escapeXml(value) {
   return String(value)
@@ -360,6 +376,22 @@ function generateChartDataUrl(resource, history, options = {}) {
     svg: buildChartSvg(resource, history, { ...options, width, height }),
   };
 
+  logger.info('[chart] built svg', {
+    resource,
+    rawPoints: prepared.rawCount,
+    displayPoints: prepared.displayCount,
+    aggregated: prepared.aggregated,
+    width,
+    height,
+    svgBytes: Buffer.byteLength(chartConfig.svg, 'utf8'),
+    svgSha256: sha256(chartConfig.svg),
+    textNodeCount: countMatches(chartConfig.svg, /<text\b/g),
+    lineCount: countMatches(chartConfig.svg, /<line\b/g),
+    pathCount: countMatches(chartConfig.svg, /<path\b/g),
+    fontDebug: FONT_DEBUG,
+    cacheKey: chartConfig.cacheKey,
+  });
+
   return { chartConfig, pointsUsed: prepared.displayCount, rawPoints: prepared.rawCount, aggregated: prepared.aggregated };
 }
 
@@ -371,8 +403,24 @@ async function generateChartBuffer(chartConfig, options = {}) {
   const cacheKey = chartConfig.cacheKey || `${chartConfig.resource || 'chart'}:${chartConfig.width || DEFAULT_WIDTH}x${chartConfig.height || DEFAULT_HEIGHT}`;
   const cached = chartCache.get(cacheKey);
   if (cached) {
+    logger.info('[chart] cache hit', {
+      resource: chartConfig.resource,
+      cacheKey,
+      pngBytes: cached.buffer.length,
+      pngSha256: sha256(cached.buffer),
+    });
     return cached.buffer.buffer.slice(cached.buffer.byteOffset, cached.buffer.byteOffset + cached.buffer.byteLength);
   }
+
+  logger.info('[chart] rendering png', {
+    resource: chartConfig.resource,
+    cacheKey,
+    width: options.width || chartConfig.width || DEFAULT_WIDTH,
+    background: options.backgroundColor || 'rgba(0,0,0,0)',
+    fontBufferCount: FONT_BUFFERS.length,
+    fontFileCount: FONT_FILES.length,
+    fontDebug: FONT_DEBUG,
+  });
 
   const resvg = new Resvg(chartConfig.svg, {
     fitTo: { mode: 'width', value: options.width || chartConfig.width || DEFAULT_WIDTH },
@@ -387,6 +435,13 @@ async function generateChartBuffer(chartConfig, options = {}) {
 
   const pngData = resvg.render();
   const buffer = pngData.asPng();
+  logger.info('[chart] rendered png', {
+    resource: chartConfig.resource,
+    cacheKey,
+    pngBytes: buffer.length,
+    pngSha256: sha256(buffer),
+    pngSignature: buffer.subarray(0, 8).toString('hex'),
+  });
   chartCache.set(cacheKey, { buffer, createdAt: Date.now() });
   return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
 }
