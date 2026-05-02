@@ -9,6 +9,7 @@
  *   automatically when new snapshots arrive.
  */
 
+const path = require('path');
 const { Resvg } = require('@resvg/resvg-js');
 
 const DEFAULT_WIDTH = 1100;
@@ -18,6 +19,11 @@ const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const LONG_RANGE_HOURLY_THRESHOLD = 24 * 14; // aggregate when chart spans beyond ~2 weeks of hourly points
 
 const chartCache = new Map();
+const FONT_FILES = [
+  path.resolve(__dirname, '../../node_modules/@fontsource/inter/files/inter-latin-400-normal.woff'),
+  path.resolve(__dirname, '../../node_modules/@fontsource/inter/files/inter-latin-600-normal.woff'),
+  path.resolve(__dirname, '../../node_modules/@fontsource/inter/files/inter-latin-700-normal.woff'),
+];
 
 function escapeXml(value) {
   return String(value)
@@ -268,6 +274,13 @@ function buildChartSvg(resource, rawHistory, options = {}) {
   return `
   <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
     <defs>
+      <style>
+        text {
+          font-family: 'Inter';
+          text-rendering: geometricPrecision;
+          -webkit-font-smoothing: antialiased;
+        }
+      </style>
       <linearGradient id="areaFade" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stop-color="#26a69a" stop-opacity="0.35" />
         <stop offset="100%" stop-color="#26a69a" stop-opacity="0.02" />
@@ -360,6 +373,11 @@ async function generateChartBuffer(chartConfig, options = {}) {
   const resvg = new Resvg(chartConfig.svg, {
     fitTo: { mode: 'width', value: options.width || chartConfig.width || DEFAULT_WIDTH },
     background: options.backgroundColor || 'rgba(0,0,0,0)',
+    font: {
+      fontFiles: FONT_FILES,
+      loadSystemFonts: true,
+      defaultFontFamily: 'Inter',
+    },
   });
 
   const pngData = resvg.render();
