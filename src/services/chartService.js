@@ -124,6 +124,37 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function buildTriangleMarker(x, y, direction = 'up', color = '#ffffff', size = 7) {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return '';
+
+  const half = size;
+  const d = direction === 'down'
+    ? `M ${x.toFixed(2)} ${y.toFixed(2)} L ${(x - half).toFixed(2)} ${(y - size * 1.45).toFixed(2)} L ${(x + half).toFixed(2)} ${(y - size * 1.45).toFixed(2)} Z`
+    : `M ${x.toFixed(2)} ${y.toFixed(2)} L ${(x - half).toFixed(2)} ${(y + size * 1.45).toFixed(2)} L ${(x + half).toFixed(2)} ${(y + size * 1.45).toFixed(2)} Z`;
+
+  return `<path d="${d}" fill="${color}" />`;
+}
+
+function buildLegendItem(x, y, options = {}) {
+  const icon = options.icon || 'square';
+  const color = options.color || '#ffffff';
+  const label = options.label || '';
+  const value = options.value || '';
+  const labelText = `${label} ${value}`.trim();
+  const parts = [];
+
+  if (icon === 'up') {
+    parts.push(buildTriangleMarker(x + 7, y - 6, 'up', color, 5));
+  } else if (icon === 'down') {
+    parts.push(buildTriangleMarker(x + 7, y + 1, 'down', color, 5));
+  } else {
+    parts.push(`<rect x="${x.toFixed(2)}" y="${(y - 11).toFixed(2)}" width="12" height="12" rx="3" fill="${color}" />`);
+  }
+
+  parts.push(buildTextPath(labelText, { x: x + 20, y, fontSize: 12, fill: color }));
+  return parts.join('');
+}
+
 function calculateStats(history) {
   if (!history || history.length === 0) return null;
   const prices = history.map(h => parseFloat(h.price));
@@ -229,7 +260,7 @@ function buildLinePoints(history, plot, minPrice, maxPrice) {
 }
 
 function buildTicks(history, stats, plot) {
-  const yTicks = 5;
+  const yTicks = 7;
   const xTicks = 6;
   const yValues = Array.from({ length: yTicks }, (_, i) => {
     const ratio = i / (yTicks - 1);
@@ -304,7 +335,7 @@ function buildChartSvg(resource, rawHistory, options = {}) {
 
   const width = options.width || DEFAULT_WIDTH;
   const height = options.height || DEFAULT_HEIGHT;
-  const plot = { left: 88, right: 38, top: 92, bottom: 96 };
+  const plot = { left: 88, right: 38, top: 122, bottom: 96 };
   plot.width = width - plot.left - plot.right;
   plot.height = height - plot.top - plot.bottom;
 
@@ -332,8 +363,8 @@ function buildChartSvg(resource, rawHistory, options = {}) {
     ? `${prepared.rawCount} raw snapshots → ${prepared.displayCount} hourly points • ${formatDateLabel(rawStats.oldest)} → ${formatDateLabel(rawStats.newest)}`
     : `${prepared.displayCount} snapshots • ${formatDateLabel(rawStats.oldest)} → ${formatDateLabel(rawStats.newest)}`;
 
-  const yGrid = ticks.yValues.map(t => `
-    <line x1="${plot.left}" y1="${t.y.toFixed(2)}" x2="${plot.left + plot.width}" y2="${t.y.toFixed(2)}" stroke="#273142" stroke-width="1" />
+  const yGrid = ticks.yValues.map((t, index) => `
+    <line x1="${plot.left}" y1="${t.y.toFixed(2)}" x2="${plot.left + plot.width}" y2="${t.y.toFixed(2)}" stroke="#273142" stroke-width="${index === 0 || index === ticks.yValues.length - 1 ? '1.1' : '0.9'}" opacity="${index % 2 === 0 ? '1' : '0.72'}" />
     ${buildTextPath(formatPrice(t.value, 4), { x: plot.left - 12, y: t.y + 5, fontSize: 14, fill: '#9fb0c3', anchor: 'end' })}`).join('');
 
   const xGrid = ticks.xValues.map(t => `
@@ -343,6 +374,13 @@ function buildChartSvg(resource, rawHistory, options = {}) {
   const weeklyGrid = weeklyMarkers.map(marker => `
     <line x1="${marker.x.toFixed(2)}" y1="${plot.top}" x2="${marker.x.toFixed(2)}" y2="${plot.top + plot.height}" stroke="#3b82f6" stroke-width="1.2" stroke-dasharray="4 6" opacity="0.75" />`
   ).join('');
+
+  const legendY = 86;
+  const legendItems = [
+    buildLegendItem(36, legendY, { icon: 'down', color: '#60a5fa', label: 'MIN', value: formatPrice(rawStats.min, 6) }),
+    buildLegendItem(245, legendY, { icon: 'up', color: '#fb7185', label: 'MAX', value: formatPrice(rawStats.max, 6) }),
+    buildLegendItem(456, legendY, { icon: 'square', color: '#fbbf24', label: 'AVG', value: formatPrice(rawStats.avg, 6) }),
+  ].join('');
 
   return `
   <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
@@ -364,36 +402,21 @@ function buildChartSvg(resource, rawHistory, options = {}) {
 
     ${buildTextPath('Current', { x: width - 36, y: 38, fontSize: 15, fill: '#8fa0b5', anchor: 'end' })}
     ${buildTextPath(formatPrice(rawStats.current), { x: width - 36, y: 62, fontSize: 26, fill: trendColor, anchor: 'end' })}
+    ${legendItems}
 
     ${yGrid}
     ${xGrid}
     ${weeklyGrid}
 
     <line x1="${plot.left}" y1="${avgY.toFixed(2)}" x2="${plot.left + plot.width}" y2="${avgY.toFixed(2)}" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="7 6" opacity="0.9" />
-    ${buildTextPath(`AVG ${formatPrice(rawStats.avg, 6)}`, { x: plot.left + plot.width - 6, y: avgY - 8, fontSize: 13, fill: '#fbbf24', anchor: 'end' })}
 
     <path d="${areaPath}" fill="url(#areaFade)" />
     <path d="${linePath}" fill="none" stroke="${trendColor}" stroke-width="2.25" stroke-linejoin="round" stroke-linecap="round" filter="url(#shadow)" />
 
     <circle cx="${currentPoint.x.toFixed(2)}" cy="${currentPoint.y.toFixed(2)}" r="4.8" fill="${trendColor}" stroke="#ffffff" stroke-width="1.5" />
 
-    ${minPoint ? `<circle cx="${minPoint.x.toFixed(2)}" cy="${minPoint.y.toFixed(2)}" r="4.2" fill="#60a5fa" />` : ''}
-    ${minPoint ? (() => {
-      const text = `MIN ${formatPrice(rawStats.min, 6)}`;
-      const widthNeeded = measureTextWidth(text, 13);
-      const x = clamp(minPoint.x + 8, plot.left + 6, width - widthNeeded - 12);
-      const y = minPoint.y >= plot.top + plot.height - 18 ? minPoint.y - 10 : minPoint.y + 18;
-      return buildTextPath(text, { x, y, fontSize: 13, fill: '#93c5fd' });
-    })() : buildTextPath(`MIN ${formatPrice(rawStats.min, 6)}`, { x: 36, y: 82, fontSize: 13, fill: '#93c5fd' })}
-
-    ${maxPoint ? `<circle cx="${maxPoint.x.toFixed(2)}" cy="${maxPoint.y.toFixed(2)}" r="4.2" fill="#fb7185" />` : ''}
-    ${maxPoint ? (() => {
-      const text = `MAX ${formatPrice(rawStats.max, 6)}`;
-      const widthNeeded = measureTextWidth(text, 13);
-      const x = clamp(maxPoint.x + 8, plot.left + 6, width - widthNeeded - 12);
-      const y = maxPoint.y <= plot.top + 18 ? maxPoint.y + 18 : maxPoint.y - 8;
-      return buildTextPath(text, { x, y, fontSize: 13, fill: '#fda4af' });
-    })() : buildTextPath(`MAX ${formatPrice(rawStats.max, 6)}`, { x: 36, y: 98, fontSize: 13, fill: '#fda4af' })}
+    ${minPoint ? buildTriangleMarker(minPoint.x, minPoint.y, 'down', '#60a5fa', 6.5) : ''}
+    ${maxPoint ? buildTriangleMarker(maxPoint.x, maxPoint.y, 'up', '#fb7185', 6.5) : ''}
 
     ${buildTextPath(`vs AVG: ${rawStats.pct >= 0 ? '+' : ''}${rawStats.pct}%`, { x: 36, y: height - 14, fontSize: 13, fill: '#8fa0b5' })}
     ${buildTextPath('Weekly separators every Sunday • real-time X axis', { x: width / 2, y: height - 14, fontSize: 12, fill: '#93c5fd', anchor: 'middle' })}
