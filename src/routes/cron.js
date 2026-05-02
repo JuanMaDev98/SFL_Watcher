@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { fetchPrices } = require('../services/priceFetcher');
 const { checkAlerts } = require('../services/alertEngine');
+const { clearChartCache } = require('../services/chartService');
 const { getSubscriptionStatus, getUserByChatId } = require('../services/subscriptionService');
 
 const logger = require('../utils/logger');
@@ -117,8 +118,11 @@ router.get('/fetch-prices', async (req, res) => {
     const result = await fetchPrices();
     logger.info('Fetched ' + result.length + ' resources');
 
-    // Check alerts after fetching
+    // Invalidate any in-memory charts on this warm instance.
+    // The chart cache key also includes the newest snapshot timestamp,
+    // so cross-instance freshness is preserved automatically.
     if (result.length > 0) {
+      clearChartCache();
       try {
         await checkAlerts();
       } catch (e) {

@@ -145,20 +145,35 @@ async function getAllPrices() {
 }
 
 /**
- * Get price history for a resource (last 30 days)
+ * Get price history for a resource.
+ * Supabase responses are paginated, so we fetch in batches.
  */
 async function getResourceHistory(resource, days = 30) {
   const cutoffDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-  
-  const { data, error } = await supabase
-    .from('price_snapshots')
-    .select('price, created_at')
-    .eq('resource', resource)
-    .gte('created_at', cutoffDate)
-    .order('created_at', { ascending: true });
+  const pageSize = 1000;
+  const rows = [];
+  let from = 0;
 
-  if (error) throw error;
-  return data;
+  while (true) {
+    const to = from + pageSize - 1;
+    const { data, error } = await supabase
+      .from('price_snapshots')
+      .select('price, created_at')
+      .eq('resource', resource)
+      .gte('created_at', cutoffDate)
+      .order('created_at', { ascending: true })
+      .range(from, to);
+
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+
+    rows.push(...data);
+
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
 }
 
 module.exports = {
