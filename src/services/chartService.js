@@ -33,6 +33,9 @@ const FONT_DEBUG = FONT_FILES.map((file, index) => ({
   exists: fs.existsSync(file),
   bytes: FONT_BUFFERS[index]?.length || 0,
 }));
+const FONTKIT_MAIN = path.resolve(__dirname, '../../node_modules/fontkit/dist/main.cjs');
+const fontkit = fs.existsSync(FONTKIT_MAIN) ? require(FONTKIT_MAIN) : null;
+const PRIMARY_FONT = fontkit && fs.existsSync(FONT_FILES[0]) ? fontkit.openSync(FONT_FILES[0]) : null;
 
 function sha256(input) {
   return crypto.createHash('sha256').update(input).digest('hex');
@@ -66,6 +69,44 @@ function formatDateTimeLabel(iso) {
   const hh = d.getUTCHours().toString().padStart(2, '0');
   const mm = d.getUTCMinutes().toString().padStart(2, '0');
   return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${hh}:${mm}`;
+}
+
+function buildTextPath(text, options = {}) {
+  if (!PRIMARY_FONT || text == null) return '';
+
+  const content = String(text);
+  if (!content.trim()) return '';
+
+  const fontSize = options.fontSize || 16;
+  const fill = options.fill || '#ffffff';
+  const opacity = options.opacity == null ? 1 : options.opacity;
+  const anchor = options.anchor || 'start';
+  const run = PRIMARY_FONT.layout(content);
+  const unitsPerEm = PRIMARY_FONT.unitsPerEm || 1000;
+  const scale = fontSize / unitsPerEm;
+  const width = run.positions.reduce((sum, pos) => sum + (pos.xAdvance || 0), 0) * scale;
+
+  let originX = options.x || 0;
+  if (anchor === 'middle') originX -= width / 2;
+  if (anchor === 'end') originX -= width;
+
+  let cursor = 0;
+  const y = options.y || 0;
+  const parts = [];
+
+  for (let i = 0; i < run.glyphs.length; i += 1) {
+    const glyph = run.glyphs[i];
+    const pos = run.positions[i] || {};
+    const d = glyph?.path?.toSVG?.();
+    if (d) {
+      const dx = originX + (cursor + (pos.xOffset || 0)) * scale;
+      const dy = y - (pos.yOffset || 0) * scale;
+      parts.push(`<path d="${d}" transform="translate(${dx.toFixed(2)} ${dy.toFixed(2)}) scale(${scale.toFixed(5)} -${scale.toFixed(5)})" fill="${fill}" opacity="${opacity}" />`);
+    }
+    cursor += pos.xAdvance || 0;
+  }
+
+  return parts.join('');
 }
 
 function calculateStats(history) {
@@ -278,27 +319,20 @@ function buildChartSvg(resource, rawHistory, options = {}) {
 
   const yGrid = ticks.yValues.map(t => `
     <line x1="${plot.left}" y1="${t.y.toFixed(2)}" x2="${plot.left + plot.width}" y2="${t.y.toFixed(2)}" stroke="#273142" stroke-width="1" />
-    <text x="${plot.left - 12}" y="${(t.y + 5).toFixed(2)}" font-size="14" fill="#9fb0c3" text-anchor="end">${escapeXml(formatPrice(t.value, 4))}</text>`).join('');
+    ${buildTextPath(formatPrice(t.value, 4), { x: plot.left - 12, y: t.y + 5, fontSize: 14, fill: '#9fb0c3', anchor: 'end' })}`).join('');
 
   const xGrid = ticks.xValues.map(t => `
     <line x1="${t.x.toFixed(2)}" y1="${plot.top}" x2="${t.x.toFixed(2)}" y2="${plot.top + plot.height}" stroke="#1d2633" stroke-width="1" />
-    <text x="${t.x.toFixed(2)}" y="${height - 26}" font-size="14" fill="#9fb0c3" text-anchor="middle">${escapeXml(t.label)}</text>`).join('');
+    ${buildTextPath(t.label, { x: t.x, y: height - 26, fontSize: 14, fill: '#9fb0c3', anchor: 'middle' })}`).join('');
 
   const weeklyGrid = weeklyMarkers.map((marker, index) => `
     <line x1="${marker.x.toFixed(2)}" y1="${plot.top}" x2="${marker.x.toFixed(2)}" y2="${plot.top + plot.height}" stroke="#3b82f6" stroke-width="1.2" stroke-dasharray="4 6" opacity="0.75" />
-    ${index > 0 ? `<text x="${(marker.x + 4).toFixed(2)}" y="${(plot.top + 18).toFixed(2)}" font-size="12" fill="#93c5fd">Sun ${escapeXml(marker.label)}</text>` : ''}`
+    ${index > 0 ? buildTextPath(`Sun ${marker.label}`, { x: marker.x + 4, y: plot.top + 18, fontSize: 12, fill: '#93c5fd' }) : ''}`
   ).join('');
 
   return `
   <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
     <defs>
-      <style>
-        text {
-          font-family: 'Inter';
-          text-rendering: geometricPrecision;
-          -webkit-font-smoothing: antialiased;
-        }
-      </style>
       <linearGradient id="areaFade" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stop-color="#26a69a" stop-opacity="0.35" />
         <stop offset="100%" stop-color="#26a69a" stop-opacity="0.02" />
@@ -311,18 +345,18 @@ function buildChartSvg(resource, rawHistory, options = {}) {
     <rect x="0" y="0" width="${width}" height="${height}" fill="#131722" rx="18" />
     <rect x="18" y="18" width="${width - 36}" height="${height - 36}" fill="#161d29" rx="16" stroke="#273142" />
 
-    <text x="36" y="44" font-size="30" font-weight="700" fill="#f4f7fb">${escapeXml(title)}</text>
-    <text x="36" y="68" font-size="15" fill="#8fa0b5">${escapeXml(subtitle)}</text>
+    ${buildTextPath(title, { x: 36, y: 44, fontSize: 30, fill: '#f4f7fb' })}
+    ${buildTextPath(subtitle, { x: 36, y: 68, fontSize: 15, fill: '#8fa0b5' })}
 
-    <text x="${width - 36}" y="44" font-size="16" fill="#8fa0b5" text-anchor="end">Current</text>
-    <text x="${width - 36}" y="68" font-size="28" font-weight="700" fill="${trendColor}" text-anchor="end">${escapeXml(formatPrice(rawStats.current))}</text>
+    ${buildTextPath('Current', { x: width - 36, y: 44, fontSize: 16, fill: '#8fa0b5', anchor: 'end' })}
+    ${buildTextPath(formatPrice(rawStats.current), { x: width - 36, y: 68, fontSize: 28, fill: trendColor, anchor: 'end' })}
 
     ${yGrid}
     ${xGrid}
     ${weeklyGrid}
 
     <line x1="${plot.left}" y1="${avgY.toFixed(2)}" x2="${plot.left + plot.width}" y2="${avgY.toFixed(2)}" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="7 6" opacity="0.9" />
-    <text x="${plot.left + plot.width - 6}" y="${(avgY - 8).toFixed(2)}" font-size="13" fill="#fbbf24" text-anchor="end">AVG ${escapeXml(formatPrice(rawStats.avg, 6))}</text>
+    ${buildTextPath(`AVG ${formatPrice(rawStats.avg, 6)}`, { x: plot.left + plot.width - 6, y: avgY - 8, fontSize: 13, fill: '#fbbf24', anchor: 'end' })}
 
     <path d="${areaPath}" fill="url(#areaFade)" />
     <path d="${linePath}" fill="none" stroke="${trendColor}" stroke-width="2.25" stroke-linejoin="round" stroke-linecap="round" filter="url(#shadow)" />
@@ -330,14 +364,14 @@ function buildChartSvg(resource, rawHistory, options = {}) {
     <circle cx="${currentPoint.x.toFixed(2)}" cy="${currentPoint.y.toFixed(2)}" r="4.8" fill="${trendColor}" stroke="#ffffff" stroke-width="1.5" />
 
     ${minPoint ? `<circle cx="${minPoint.x.toFixed(2)}" cy="${minPoint.y.toFixed(2)}" r="4.2" fill="#60a5fa" />` : ''}
-    ${minPoint ? `<text x="${Math.min(minPoint.x + 8, width - 160).toFixed(2)}" y="${Math.max(minPoint.y - 8, 82).toFixed(2)}" font-size="13" fill="#93c5fd">MIN ${escapeXml(formatPrice(rawStats.min, 6))}</text>` : `<text x="36" y="88" font-size="13" fill="#93c5fd">MIN ${escapeXml(formatPrice(rawStats.min, 6))}</text>`}
+    ${minPoint ? buildTextPath(`MIN ${formatPrice(rawStats.min, 6)}`, { x: Math.min(minPoint.x + 8, width - 160), y: Math.max(minPoint.y - 8, 82), fontSize: 13, fill: '#93c5fd' }) : buildTextPath(`MIN ${formatPrice(rawStats.min, 6)}`, { x: 36, y: 88, fontSize: 13, fill: '#93c5fd' })}
 
     ${maxPoint ? `<circle cx="${maxPoint.x.toFixed(2)}" cy="${maxPoint.y.toFixed(2)}" r="4.2" fill="#fb7185" />` : ''}
-    ${maxPoint ? `<text x="${Math.min(maxPoint.x + 8, width - 160).toFixed(2)}" y="${Math.max(maxPoint.y - 8, 82).toFixed(2)}" font-size="13" fill="#fda4af">MAX ${escapeXml(formatPrice(rawStats.max, 6))}</text>` : `<text x="36" y="106" font-size="13" fill="#fda4af">MAX ${escapeXml(formatPrice(rawStats.max, 6))}</text>`}
+    ${maxPoint ? buildTextPath(`MAX ${formatPrice(rawStats.max, 6)}`, { x: Math.min(maxPoint.x + 8, width - 160), y: Math.max(maxPoint.y - 8, 82), fontSize: 13, fill: '#fda4af' }) : buildTextPath(`MAX ${formatPrice(rawStats.max, 6)}`, { x: 36, y: 106, fontSize: 13, fill: '#fda4af' })}
 
-    <text x="36" y="${height - 22}" font-size="14" fill="#8fa0b5">vs AVG: ${rawStats.pct >= 0 ? '+' : ''}${escapeXml(rawStats.pct)}%</text>
-    <text x="${(width / 2).toFixed(2)}" y="${height - 22}" font-size="13" fill="#93c5fd" text-anchor="middle">Weekly separators every Sunday • real-time X axis</text>
-    <text x="${width - 36}" y="${height - 22}" font-size="14" fill="#8fa0b5" text-anchor="end">${prepared.aggregated ? 'Hourly normalized for 90d view • current exact' : 'Raw timestamps • current exact'}</text>
+    ${buildTextPath(`vs AVG: ${rawStats.pct >= 0 ? '+' : ''}${rawStats.pct}%`, { x: 36, y: height - 22, fontSize: 14, fill: '#8fa0b5' })}
+    ${buildTextPath('Weekly separators every Sunday • real-time X axis', { x: width / 2, y: height - 22, fontSize: 13, fill: '#93c5fd', anchor: 'middle' })}
+    ${buildTextPath(prepared.aggregated ? 'Hourly normalized for 90d view • current exact' : 'Raw timestamps • current exact', { x: width - 36, y: height - 22, fontSize: 14, fill: '#8fa0b5', anchor: 'end' })}
   </svg>`;
 }
 
