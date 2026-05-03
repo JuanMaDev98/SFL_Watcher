@@ -259,7 +259,7 @@ async function handlePendingFlow(chatId, text) {
 
   if (prefs.pendingAction === 'sendpromo_en') {
     const payload = { ...(prefs.pendingPayload || {}), promo_en: text.trim() };
-    const recipients = (await getFreeTierUsers()).filter(user => String(user.userId) !== String(chatId));
+    const recipients = await getFreeTierUsers();
 
     let sent = 0;
     for (const user of recipients) {
