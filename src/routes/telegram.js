@@ -1064,6 +1064,18 @@ async function processPriceTargetAlert(chatId, args) {
     await sendTelegramAwait(chatId, pick(locale, `✅ Alerta objetivo guardada para <b>${resource}</b>\n🎯 ${direction} ${formatTrimmed(targetPrice, 9)}`, `✅ Target alert saved for <b>${resource}</b>\n🎯 ${direction} ${formatTrimmed(targetPrice, 9)}`));
   } catch (error) {
     logger.error('[pricealert] error: ' + error.message);
+    const locale = await getLocale(chatId);
+    const message = String(error?.message || '');
+
+    if (message.includes('user_alerts_alert_type_check')) {
+      await sendTelegramAwait(chatId, pick(
+        locale,
+        '❌ La base de datos todavía tiene una regla vieja y no está permitiendo alertas de tipo <code>above/below</code>.\n\nArreglo rápido en Supabase SQL Editor:\n<code>ALTER TABLE user_alerts DROP CONSTRAINT IF EXISTS user_alerts_alert_type_check;</code>',
+        '❌ The database still has an old rule and is not allowing <code>above/below</code> alert types yet.\n\nQuick fix in Supabase SQL Editor:\n<code>ALTER TABLE user_alerts DROP CONSTRAINT IF EXISTS user_alerts_alert_type_check;</code>'
+      ));
+      return;
+    }
+
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
   }
 }
