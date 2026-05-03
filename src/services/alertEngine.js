@@ -1,7 +1,9 @@
 const supabase = require('../lib/supabase');
-const { sendTelegramMessage, formatAlertMessage, sendTelegramPhoto } = require('./telegramService');
+const { sendTelegramMessage, formatAlertMessage, formatTargetAlertMessage, sendTelegramPhoto } = require('./telegramService');
 const { generateChartDataUrl, generateChartBuffer } = require('./chartService');
-const { sendNtfyNotification, formatNtfyAlert, getUserNtfyTopic } = require('./ntfyService');
+const { sendNtfyNotification, formatNtfyAlert, formatNtfyTargetAlert, getUserNtfyTopic } = require('./ntfyService');
+const { getUserLanguage } = require('./subscriptionService');
+const { getResourceHistory } = require('./priceFetcher');
 const logger = require('../utils/logger');
 
 /**
@@ -184,21 +186,55 @@ async function checkResourceAlerts(resource, alerts) {
     logger.info(`[AlertEngine] ${resource}: current=${currentPct}%, avg=${stats.avg_price?.toFixed(4)}, cur=${stats.current_price?.toFixed(4)}`);
 
     for (const alert of alerts) {
-      const thresholdHigh = alert.threshold_high || 10;
-      const thresholdLow = alert.threshold_low || -10;
+      const alertType = alert.alert_type || 'dual';
+      const thresholdHigh = Number(alert.threshold_high || 10);
+      const thresholdLow = Number(alert.threshold_low || -10);
+      const targetPrice = alert.target_price != null ? Number(alert.target_price) : null;
+      const targetDirection = alert.target_direction || null;
+      const now = new Date();
+      const cooldownHours = 12;
 
-      const triggered = currentPct >= thresholdHigh || currentPct <= thresholdLow;
+      let triggered = false;
+      let withinCooldown = false;
+      let updates = {};
 
-      if (triggered) {
-        const now = new Date();
-        const cooldownHours = 12;
-        
-        // Determine if this is a RISE or FALL alert
+      if (alertType === 'price_above' || alertType === 'price_below') {
+        const isAboveTarget = alertType === 'price_above';
+        triggered = targetPrice != null && (isAboveTarget ? Number(stats.current_price) >= targetPrice : Number(stats.current_price) <= targetPrice);
+        if (triggered && alert.last_notified_target_at) {
+          const lastNotified = new Date(alert.last_notified_target_at);
+          withinCooldown = (now - lastNotified) < (cooldownHours * 60 * 60 * 1000);
+        }
+
+        if (!triggered) {
+          logger.info(`[AlertEngine] ${resource}: current price ${stats.current_price} has not crossed target ${targetPrice}`);
+          continue;
+        }
+
+        if (withinCooldown) {
+          logger.info(`[AlertEngine] ${resource}: target alert triggered but within cooldown, skipping`);
+          continue;
+        }
+
+        const language = await getUserLanguage(String(alert.user_id));
+        await sendTelegramTargetAlert(alert.user_id, resource, targetDirection || (isAboveTarget ? 'above' : 'below'), targetPrice, stats, language);
+
+        const ntfySettings = await getUserNtfyEnabled(alert.user_id);
+        if (ntfySettings.enabled) {
+          await sendNtfyTargetAlertNotification(alert.user_id, resource, targetDirection || (isAboveTarget ? 'above' : 'below'), targetPrice, stats, language);
+        }
+
+        updates = { last_notified_target_at: now.toISOString() };
+      } else {
         const isRiseAlert = currentPct >= thresholdHigh;
         const isFallAlert = currentPct <= thresholdLow;
-        
-        // Check cooldown based on direction
-        let withinCooldown = false;
+        triggered = isRiseAlert || isFallAlert;
+
+        if (!triggered) {
+          logger.info(`[AlertEngine] ${resource}: ${currentPct}% within thresholds (+${thresholdHigh}/${thresholdLow}%)`);
+          continue;
+        }
+
         if (isRiseAlert && alert.last_notified_rise_at) {
           const lastNotified = new Date(alert.last_notified_rise_at);
           withinCooldown = (now - lastNotified) < (cooldownHours * 60 * 60 * 1000);
@@ -212,46 +248,24 @@ async function checkResourceAlerts(resource, alerts) {
           continue;
         }
 
-        logger.info(`[AlertEngine] 🚨 TRIGGERED: ${resource} at ${currentPct}% (${isRiseAlert ? 'RISE' : 'FALL'}, thresholds: +${thresholdHigh}/${thresholdLow}%)`);
+        const language = await getUserLanguage(String(alert.user_id));
+        await sendTelegramAlert(alert.user_id, resource, currentPct, stats, thresholdHigh, thresholdLow, language);
 
-        // Send Telegram alert with chart
-        await sendTelegramAlert(alert.user_id, resource, currentPct, stats, thresholdHigh, thresholdLow);
-
-        // Send NTFY notification if enabled
         const ntfySettings = await getUserNtfyEnabled(alert.user_id);
-        logger.info(`[AlertEngine] NTFY check for user ${alert.user_id}: enabled=${ntfySettings.enabled}, graphEnabled=${ntfySettings.graphEnabled}`);
         if (ntfySettings.enabled) {
-          try {
-            await sendNtfyAlertNotification(alert.user_id, resource, currentPct, stats, thresholdHigh, thresholdLow, ntfySettings.graphEnabled);
-            logger.info(`[AlertEngine] NTFY notification sent for ${resource}`);
-          } catch (ntfyErr) {
-            logger.error(`[AlertEngine] NTFY error for ${resource}:`, ntfyErr.message);
-          }
-        } else {
-          logger.info(`[AlertEngine] NTFY skipped for ${resource} - not enabled`);
+          await sendNtfyAlertNotification(alert.user_id, resource, currentPct, stats, thresholdHigh, thresholdLow, language, ntfySettings.graphEnabled);
         }
 
-        // Update last_notified based on direction
-        // Reset opposite cooldown so price can cross both ways within 12h window
         const updateField = isRiseAlert ? 'last_notified_rise_at' : 'last_notified_fall_at';
-        const updates = { [updateField]: now.toISOString() };
-        
-        if (isFallAlert) {
-          // Reset rise cooldown so next rise can notify
-          updates.last_notified_rise_at = null;
-        } else if (isRiseAlert) {
-          // Reset fall cooldown so next fall can notify
-          updates.last_notified_fall_at = null;
-        }
-        
-        await supabase
-          .from('user_alerts')
-          .update(updates)
-          .eq('id', alert.id);
-
-      } else {
-        logger.info(`[AlertEngine] ${resource}: ${currentPct}% within thresholds (+${thresholdHigh}/${thresholdLow}%)`);
+        updates = { [updateField]: now.toISOString() };
+        if (isFallAlert) updates.last_notified_rise_at = null;
+        if (isRiseAlert) updates.last_notified_fall_at = null;
       }
+
+      await supabase
+        .from('user_alerts')
+        .update(updates)
+        .eq('id', alert.id);
     }
 
   } catch (error) {
@@ -262,53 +276,58 @@ async function checkResourceAlerts(resource, alerts) {
 /**
  * Send Telegram alert with chart image
  */
-async function sendTelegramAlert(userId, resource, currentPct, stats, thresholdHigh, thresholdLow) {
-  const sign = currentPct > 0 ? '+' : '';
-  const emoji = currentPct >= thresholdHigh ? '🔺' : '🔻';
-
+async function sendTelegramAlert(userId, resource, currentPct, stats, thresholdHigh, thresholdLow, language = 'es') {
   try {
-    // Get history for chart (use all available snapshots)
-    const { data: history } = await supabase
-      .from('price_snapshots')
-      .select('price, created_at')
-      .eq('resource', resource)
-      .order('created_at', { ascending: true });
+    const history = await getResourceHistory(resource, 90);
+    const msg = formatAlertMessage(resource, currentPct, stats, thresholdHigh, thresholdLow, language);
 
     if (history && history.length >= 2) {
-      // Generate and send chart (history already in ascending order: oldest → newest)
-      const { chartConfig } = generateChartDataUrl(resource, history);
+      const { chartConfig } = generateChartDataUrl(resource, history, { locale: language, statsOverride: stats });
       const arrayBuffer = await generateChartBuffer(chartConfig);
       const buffer = Buffer.from(arrayBuffer);
       const base64 = buffer.toString('base64');
       const chartDataUrl = `data:image/png;base64,${base64}`;
 
-      const msg = formatAlertMessage(resource, currentPct, stats, thresholdHigh, thresholdLow);
-
-      const caption = msg;
-
-      const sent = await sendTelegramPhoto(userId, chartDataUrl, caption);
+      const sent = await sendTelegramPhoto(userId, chartDataUrl, msg);
       if (!sent) {
         logger.error(`[AlertEngine] sendTelegramPhoto failed for ${userId}, falling back to text`);
-        const msg = formatAlertMessage(resource, currentPct, stats, thresholdHigh, thresholdLow);
         await sendTelegramMessage(userId, msg);
       }
     } else {
-      // Not enough history, send text only
-      const msg = formatAlertMessage(resource, currentPct, stats, thresholdHigh, thresholdLow);
       await sendTelegramMessage(userId, msg);
     }
-
   } catch (error) {
     logger.error('[AlertEngine] sendTelegramAlert error:', error.message);
-    const msg = formatAlertMessage(resource, currentPct, stats, thresholdHigh, thresholdLow);
+    const msg = formatAlertMessage(resource, currentPct, stats, thresholdHigh, thresholdLow, language);
     await sendTelegramMessage(userId, msg);
+  }
+}
+
+async function sendTelegramTargetAlert(userId, resource, direction, targetPrice, stats, language = 'es') {
+  try {
+    const history = await getResourceHistory(resource, 90);
+    const msg = formatTargetAlertMessage(resource, direction, targetPrice, stats, language);
+
+    if (history && history.length >= 2) {
+      const { chartConfig } = generateChartDataUrl(resource, history, { locale: language, statsOverride: stats });
+      const arrayBuffer = await generateChartBuffer(chartConfig);
+      const buffer = Buffer.from(arrayBuffer);
+      const chartDataUrl = `data:image/png;base64,${buffer.toString('base64')}`;
+      const sent = await sendTelegramPhoto(userId, chartDataUrl, msg);
+      if (!sent) await sendTelegramMessage(userId, msg);
+    } else {
+      await sendTelegramMessage(userId, msg);
+    }
+  } catch (error) {
+    logger.error('[AlertEngine] sendTelegramTargetAlert error:', error.message);
+    await sendTelegramMessage(userId, formatTargetAlertMessage(resource, direction, targetPrice, stats, language));
   }
 }
 
 /**
  * Send NTFY notification (with optional chart)
  */
-async function sendNtfyAlertNotification(userId, resource, currentPct, stats, thresholdHigh, thresholdLow, includeGraph) {
+async function sendNtfyAlertNotification(userId, resource, currentPct, stats, thresholdHigh, thresholdLow, language = 'es', includeGraph) {
   logger.info(`[AlertEngine] sendNtfyAlertNotification() ===`);
   logger.info(`[AlertEngine]   userId: ${userId}`);
   logger.info(`[AlertEngine]   resource: ${resource}`);
@@ -321,7 +340,7 @@ async function sendNtfyAlertNotification(userId, resource, currentPct, stats, th
     const topic = getUserNtfyTopic(userId);
     logger.info(`[AlertEngine] Generated topic: ${topic}`);
     
-    const message = formatNtfyAlert(resource, currentPct, stats, thresholdHigh, thresholdLow);
+    const message = formatNtfyAlert(resource, currentPct, stats, thresholdHigh, thresholdLow, language);
     logger.info(`[AlertEngine] Formatted message:\n${message}`);
 
     // Always send text-only notification (no images)
@@ -336,6 +355,20 @@ async function sendNtfyAlertNotification(userId, resource, currentPct, stats, th
   } catch (error) {
     logger.error(`[AlertEngine] ❌ sendNtfyAlertNotification error: ${error.message}`);
     logger.error(`[AlertEngine] Error stack:`, error.stack);
+  }
+}
+
+async function sendNtfyTargetAlertNotification(userId, resource, direction, targetPrice, stats, language = 'es') {
+  try {
+    const topic = getUserNtfyTopic(userId);
+    const message = formatNtfyTargetAlert(resource, direction, targetPrice, stats, language);
+    return sendNtfyNotification(topic, message, {
+      title: `${resource.toUpperCase()} Alert`,
+      tags: 'warning'
+    });
+  } catch (error) {
+    logger.error(`[AlertEngine] sendNtfyTargetAlertNotification error: ${error.message}`);
+    return false;
   }
 }
 

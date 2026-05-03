@@ -1,5 +1,9 @@
 const supabase = require('../lib/supabase');
 const logger = require('../utils/logger');
+const {
+  formatPercentAlertMessage,
+  formatPriceAlertMessage,
+} = require('./formatters');
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_API = TELEGRAM_BOT_TOKEN ? `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}` : null;
@@ -82,43 +86,12 @@ async function sendTelegramPhoto(chatId, photoDataUrl, caption) {
 /**
  * Format price alert as Telegram message
  */
-function formatAlertMessage(resource, currentPct, stats, thresholdHigh, thresholdLow) {
-  const isAbove = currentPct > 0;
-  const emoji = isAbove ? '🔺' : '🔻';
-  const direction = isAbove ? 'SUBIÓ' : 'BAJÓ';
-  const sign = currentPct > 0 ? '+' : '';
+function formatAlertMessage(resource, currentPct, stats, thresholdHigh, thresholdLow, language = 'es') {
+  return formatPercentAlertMessage(resource, currentPct, stats, thresholdHigh, thresholdLow, language);
+}
 
-  // 90-day min/max indicator
-  let minMaxLabel = '';
-  if (stats.is90DayMin) {
-    minMaxLabel = '🟢 <b>90-Day MINIMUM - BUY OPPORTUNITY!</b>';
-  } else if (stats.is90DayMax) {
-    minMaxLabel = '🔴 <b>90-Day MAXIMUM - SELL TIME!</b>';
-  }
-
-  const avgStr = stats.avg_price?.toFixed(5) || stats.avg_price;
-
-  const lines = [
-    `${emoji} <b>${resource.toUpperCase()}</b> ${direction} del promedio!`,
-  ];
-
-  if (minMaxLabel) {
-    lines.push('');
-    lines.push(minMaxLabel);
-    lines.push('');
-  }
-
-  lines.push(`💰 Precio actual: <code>${stats.current_price}</code>`);
-  lines.push(`📊 vs promedio: <code>${sign}${currentPct}%</code>`);
-  lines.push(`📈 Promedio: <code>${avgStr}</code>`);
-  lines.push(`📍 Mín/Máx: <code>${stats.min_price}</code> / <code>${stats.max_price}</code>`);
-  lines.push(`📋 Snapshots: <code>${stats.snapshot_count}</code>`);
-  lines.push('');
-  lines.push(`⚙️ Tus umbrales:`);
-  lines.push(`   ▲ Umbral alto: +${thresholdHigh}%`);
-  lines.push(`   ▼ Umbral bajo: ${thresholdLow}%`);
-
-  return lines.join('\n');
+function formatTargetAlertMessage(resource, direction, targetPrice, stats, language = 'es') {
+  return formatPriceAlertMessage(resource, direction, targetPrice, stats, language);
 }
 
 /**
@@ -149,5 +122,6 @@ module.exports = {
   sendTelegramMessage,
   sendTelegramPhoto,
   formatAlertMessage,
+  formatTargetAlertMessage,
   formatThresholdConfig
 };

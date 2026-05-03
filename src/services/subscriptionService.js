@@ -8,6 +8,7 @@ const FLOWER_PRICE_API = 'https://sfl.world/api/v1.1/exchange';
 const SUBSCRIPTION_USD = 1; // $1 USD = 30 days
 const DAYS_PER_SUBSCRIPTION = 30;
 const TRIAL_DAYS = 7;
+const DEFAULT_LANGUAGE = 'es';
 
 let supabase;
 
@@ -77,6 +78,9 @@ async function ensureSubscription(userId) {
     .insert({
       user_id: userId,
       status: 'trial',
+      preferred_language: DEFAULT_LANGUAGE,
+      pending_action: null,
+      pending_payload: {},
       trial_started_at: new Date().toISOString(),
       trial_ends_at: trialEndsAt.toISOString()
     })
@@ -301,14 +305,86 @@ async function getNtfySettings(userId) {
  */
 async function updateNtfySettings(userId, settings) {
   const db = getSupabase();
+  const updates = {};
+  if (settings.ntfyEnabled !== undefined) updates.ntfy_enabled = settings.ntfyEnabled;
+  if (settings.ntfyGraphEnabled !== undefined) updates.ntfy_graph_enabled = settings.ntfyGraphEnabled;
   const { error } = await db
     .from('user_subscriptions')
-    .update({
-      ntfy_enabled: settings.ntfyEnabled !== undefined ? settings.ntfyEnabled : false,
-      ntfy_graph_enabled: settings.ntfyGraphEnabled !== undefined ? settings.ntfyGraphEnabled : true
-    })
+    .update(updates)
     .eq('user_id', userId);
   if (error) throw error;
+}
+
+async function getUserPreferences(userId) {
+  await ensureSubscription(userId);
+  const db = getSupabase();
+  const { data, error } = await db
+    .from('user_subscriptions')
+    .select('preferred_language, pending_action, pending_payload, status, ntfy_enabled, ntfy_graph_enabled, notify_expiry')
+    .eq('user_id', userId)
+    .single();
+
+  if (error) throw error;
+
+  return {
+    preferredLanguage: data?.preferred_language || DEFAULT_LANGUAGE,
+    pendingAction: data?.pending_action || null,
+    pendingPayload: data?.pending_payload || {},
+    status: data?.status || 'trial',
+    ntfyEnabled: data?.ntfy_enabled || false,
+    ntfyGraphEnabled: data?.ntfy_graph_enabled !== undefined ? data.ntfy_graph_enabled : true,
+    notifyExpiry: data?.notify_expiry || null,
+  };
+}
+
+async function getUserLanguage(userId) {
+  const prefs = await getUserPreferences(userId);
+  return prefs.preferredLanguage || DEFAULT_LANGUAGE;
+}
+
+async function setUserLanguage(userId, language) {
+  const db = getSupabase();
+  const normalized = String(language || DEFAULT_LANGUAGE).toLowerCase().startsWith('en') ? 'en' : 'es';
+  await ensureSubscription(userId);
+  const { error } = await db
+    .from('user_subscriptions')
+    .update({ preferred_language: normalized, updated_at: new Date().toISOString() })
+    .eq('user_id', userId);
+  if (error) throw error;
+  return normalized;
+}
+
+async function setPendingAction(userId, action, payload = {}) {
+  const db = getSupabase();
+  await ensureSubscription(userId);
+  const { error } = await db
+    .from('user_subscriptions')
+    .update({ pending_action: action, pending_payload: payload, updated_at: new Date().toISOString() })
+    .eq('user_id', userId);
+  if (error) throw error;
+}
+
+async function clearPendingAction(userId) {
+  const db = getSupabase();
+  const { error } = await db
+    .from('user_subscriptions')
+    .update({ pending_action: null, pending_payload: {}, updated_at: new Date().toISOString() })
+    .eq('user_id', userId);
+  if (error) throw error;
+}
+
+async function getFreeTierUsers() {
+  const db = getSupabase();
+  const { data, error } = await db
+    .from('user_subscriptions')
+    .select('user_id, preferred_language, status')
+    .in('status', ['trial', 'trial_expired']);
+  if (error) throw error;
+  return (data || []).map(row => ({
+    userId: row.user_id,
+    language: row.preferred_language || DEFAULT_LANGUAGE,
+    status: row.status,
+  }));
 }
 
 module.exports = {
@@ -324,6 +400,12 @@ module.exports = {
   verifyWalletPayment,
   getNtfySettings,
   updateNtfySettings,
+  getUserPreferences,
+  getUserLanguage,
+  setUserLanguage,
+  setPendingAction,
+  clearPendingAction,
+  getFreeTierUsers,
   PAYMENT_ADDRESS,
   DAYS_PER_SUBSCRIPTION,
   SUBSCRIPTION_USD

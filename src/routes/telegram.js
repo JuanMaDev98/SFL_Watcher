@@ -1,8 +1,44 @@
 const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
+const supabase = require('../lib/supabase');
+const { generateChartBuffer, generateChartDataUrl } = require('../services/chartService');
+const { getResourceHistory, getResourceStats, getAllPrices } = require('../services/priceFetcher');
+const { getUserNtfyTopic, sendNtfyNotification } = require('../services/ntfyService');
+const { sendTelegramMessage } = require('../services/telegramService');
+const {
+  getSubscriptionStatus,
+  getUserWallet,
+  ensureSubscription,
+  getUserLanguage,
+  setUserLanguage,
+  getUserPreferences,
+  setPendingAction,
+  clearPendingAction,
+  getFreeTierUsers,
+  getNtfySettings,
+  updateNtfySettings,
+  connectWallet,
+  getSubscriptionCost,
+  addSubscriptionDays,
+  recordPayment,
+  isTxHashUsed,
+  verifyWalletPayment,
+  PAYMENT_ADDRESS,
+} = require('../services/subscriptionService');
+const {
+  pick,
+  normalizeLanguage,
+  escapeHtml,
+  formatGraphCaption,
+  formatFixed,
+  formatTrimmed,
+  formatSignedPercent,
+} = require('../services/formatters');
 
 const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
+const ADMIN_TELEGRAM_IDS = new Set(String(process.env.ADMIN_TELEGRAM_IDS || '1166287745').split(',').map(v => v.trim()).filter(Boolean));
+const ALL_RESOURCES = ['apple','artichoke','banana','barley','beetroot','blueberry','broccoli','bumpkin emblem','cabbage','carrot','cauliflower','celestine','chewed bone','corn','crimstone','dewberry','duskberry','egg','eggplant','feather','frost pebble','goblin emblem','gold','grape','heart leaf','honey','iron','kale','leather','lemon','lunara','merino wool','milk','moonfur','nightshade emblem','obsidian','olive','onion','orange','parsnip','pepper','potato','pumpkin','radish','rhubarb','ribbon','rice','ruffroot','soybean','stone','sunflorian emblem','sunflower','tomato','turnip','wheat','wild grass','wood','wool','yam','zucchini'];
 
 /**
  * Fire-and-forget Telegram sender (for simple responses)
@@ -164,37 +200,79 @@ async function sendDocumentBuffer(chatId, buffer, caption, filename = 'chart.png
 // ============================================
 // SUBSCRIPTION GATING
 // ============================================
-const { getSubscriptionStatus, getUserWallet, ensureSubscription } = require('../services/subscriptionService');
+async function getLocale(chatId) {
+  return normalizeLanguage(await getUserLanguage(String(chatId)));
+}
+
+function isAdmin(chatId) {
+  return ADMIN_TELEGRAM_IDS.has(String(chatId));
+}
+
+function promoMessageForLanguage(language, esText, enText) {
+  return normalizeLanguage(language) === 'en' ? enText : esText;
+}
 
 async function checkSubscription(chatId) {
-  // First: ensure user has a subscription record (creates trial if new)
   await ensureSubscription(chatId.toString());
-  
-  // Check subscription status
+  const locale = await getLocale(chatId);
   const sub = await getSubscriptionStatus(chatId.toString());
-  
-  // Trial users can use everything without wallet
-  if (sub.status === 'trial') {
-    return null; // Allow access
-  }
-  
-  // Trial expired: wallet + payment required
+
+  if (sub.status === 'trial') return null;
+
   if (sub.status === 'trial_expired') {
-    return 'Wallet Required:\\n\\nYour 7-day trial has ended.\\nConnect wallet to subscribe:\\n/connectwallet <your_address>\\n\\nExample: /connectwallet 0x742d35Cc6634C0532925a3b844Bc9e7595f1d687';
+    return pick(
+      locale,
+      'Wallet Required\\n\\nTu prueba de 7 días terminó.\\nConecta tu wallet para suscribirte:\\n/connectwallet <tu_address>\\n\\nEjemplo: /connectwallet 0x742d35Cc6634C0532925a3b844Bc9e7595f1d687',
+      'Wallet Required\\n\\nYour 7-day trial has ended.\\nConnect your wallet to subscribe:\\n/connectwallet <your_address>\\n\\nExample: /connectwallet 0x742d35Cc6634C0532925a3b844Bc9e7595f1d687'
+    );
   }
-  
-  // Expired subscription: needs payment
+
   if (sub.status === 'expired') {
-    return 'Subscription Expired:\\n\\nYour subscription has ended.\\nExtend: /subscribe';
+    return pick(locale, 'Suscripción expirada\\n\\nTu suscripción terminó.\\nRenueva con /subscribe', 'Subscription Expired\\n\\nYour subscription has ended.\\nExtend with /subscribe');
   }
-  
-  // Active subscription: check wallet exists
+
   const wallet = await getUserWallet(chatId.toString());
   if (!wallet) {
-    return 'Wallet Required:\\n\\nConnect your wallet to use the bot:\\n/connectwallet <your_address>\\n\\nExample: /connectwallet 0x742d35Cc6634C0532925a3b844Bc9e7595f1d687';
+    return pick(
+      locale,
+      'Wallet Required\\n\\nConecta tu wallet para usar el bot:\\n/connectwallet <tu_address>\\n\\nEjemplo: /connectwallet 0x742d35Cc6634C0532925a3b844Bc9e7595f1d687',
+      'Wallet Required\\n\\nConnect your wallet to use the bot:\\n/connectwallet <your_address>\\n\\nExample: /connectwallet 0x742d35Cc6634C0532925a3b844Bc9e7595f1d687'
+    );
   }
-  
-  return null; // OK - user is subscribed with wallet
+
+  return null;
+}
+
+async function handlePendingFlow(chatId, text) {
+  const locale = await getLocale(chatId);
+  const prefs = await getUserPreferences(String(chatId));
+
+  if (!prefs.pendingAction) return false;
+
+  if (prefs.pendingAction === 'sendpromo_es') {
+    await setPendingAction(String(chatId), 'sendpromo_en', { promo_es: text.trim() });
+    await sendTelegramAwait(chatId, pick(locale, '✅ Promo en español guardada.\\n\\nAhora manda la promo en inglés.', '✅ Spanish promo saved.\\n\\nNow send the English promo.'));
+    return true;
+  }
+
+  if (prefs.pendingAction === 'sendpromo_en') {
+    const payload = { ...(prefs.pendingPayload || {}), promo_en: text.trim() };
+    const recipients = (await getFreeTierUsers()).filter(user => String(user.userId) !== String(chatId));
+
+    let sent = 0;
+    for (const user of recipients) {
+      const outgoing = promoMessageForLanguage(user.language, payload.promo_es || text.trim(), payload.promo_en || text.trim());
+      const wrapped = `${promoMessageForLanguage(user.language, '📣 <b>Novedad de SFL Watcher</b>', '📣 <b>SFL Watcher Update</b>')}\\n\\n${escapeHtml(outgoing)}`;
+      const ok = await sendTelegramMessage(user.userId, wrapped);
+      if (ok) sent += 1;
+    }
+
+    await clearPendingAction(String(chatId));
+    await sendTelegramAwait(chatId, pick(locale, `✅ Promo enviada a ${sent}/${recipients.length} usuarios free.`, `✅ Promo sent to ${sent}/${recipients.length} free users.`));
+    return true;
+  }
+
+  return false;
 }
 
 
@@ -210,87 +288,47 @@ router.post('/webhook', async (req, res) => {
 
   const chatId = message.chat.id;
   const text = message.text.trim();
+  await ensureSubscription(String(chatId));
+
+  if (!text.startsWith('/')) {
+    const handled = await handlePendingFlow(chatId, text);
+    if (!handled) {
+      const locale = await getLocale(chatId);
+      await sendTelegramAwait(chatId, pick(locale, '❌ No entendí ese mensaje. Usa /help para ver los comandos.', '❌ I did not understand that message. Use /help to see commands.'));
+    }
+    res.json({ ok: true });
+    return;
+  }
+
   const parts = text.split(' ');
   const command = parts[0].toLowerCase();
+  const locale = await getLocale(chatId);
 
   logger.info(`[webhook] ${command} from ${chatId}`);
 
   if (command === '/start') {
     await sendTelegramAwait(chatId,
-      '🦉 <b>SFL Watcher</b>\n\n' +
-      '📊 <b>Prices &amp; Charts:</b>\n' +
-      '/price &lt;resource&gt; • /priceall • /graph &lt;resource&gt; • /list\n\n' +
-      '🔔 <b>Alerts:</b>\n' +
-      '/alerts • /alert &lt;res&gt; &lt;rise%&gt; &lt;fall%&gt; • /alertall &lt;rise%&gt; &lt;fall%&gt;\n' +
-      '/removealert &lt;resource&gt; • /removeallalerts\n\n' +
-      '💳 <b>Subscription:</b>\n' +
-      '/connectwallet • /subscribe • /status • /pay\n\n' +
-      'Type /help for more details.'
+      pick(locale,
+        '🦉 <b>SFL Watcher</b>\n\n📊 <b>Precios y gráficas</b>\n/price &lt;resource&gt; • /priceall • /graph &lt;resource&gt; • /list\n\n🔔 <b>Alertas</b>\n/alerts • /alert &lt;res&gt; &lt;sube%&gt; &lt;baja%&gt; • /pricealert &lt;res&gt; &lt;above|below&gt; &lt;precio&gt;\n\n🌐 <b>Idioma</b>\n/language es • /language en\n\n💳 <b>Suscripción</b>\n/connectwallet • /subscribe • /status • /pay\n\nUsa /help para ver todo.',
+        '🦉 <b>SFL Watcher</b>\n\n📊 <b>Prices and charts</b>\n/price &lt;resource&gt; • /priceall • /graph &lt;resource&gt; • /list\n\n🔔 <b>Alerts</b>\n/alerts • /alert &lt;res&gt; &lt;rise%&gt; &lt;fall%&gt; • /pricealert &lt;res&gt; &lt;above|below&gt; &lt;price&gt;\n\n🌐 <b>Language</b>\n/language es • /language en\n\n💳 <b>Subscription</b>\n/connectwallet • /subscribe • /status • /pay\n\nUse /help to see everything.'
+      )
     );
   }
   else if (command === '/help') {
+    const adminLine = isAdmin(chatId)
+      ? pick(locale, '\n/sendpromo - Mandar promo a usuarios free', '\n/sendpromo - Send promo to free users')
+      : '';
     await sendTelegramAwait(chatId,
-      '📊 <b>SFL Watcher - Help</b>\n\n' +
-
-      '━━━━━━━━━━━━━━━━━━━━\n' +
-      '💳 <b>HOW TO SUBSCRIBE</b>\n' +
-      '━━━━━━━━━━━━━━━━━━━━\n\n' +
-      '1️⃣ /connectwallet &lt;your_wallet_address&gt;\n' +
-      '   Link your wallet to your account\n\n' +
-      '2️⃣ /subscribe\n' +
-      '   Get payment address &amp; amount in FLOWER\n\n' +
-      '3️⃣ Send FLOWER from YOUR wallet to the address shown\n\n' +
-      '4️⃣ /pay\n' +
-      '   Bot verifies payment and activates 30 days\n\n' +
-      '💰 Cost: <b>$1 USD / 30 days</b>\n' +
-      '⚠️ You MUST send from your linked wallet\n\n' +
-
-      '━━━━━━━━━━━━━━━━━━━━\n' +
-      '📈 <b>PRICE COMMANDS</b>\n' +
-      '━━━━━━━━━━━━━━━━━━━━\n\n' +
-      '/price &lt;resource&gt; - Price info (e.g. /price wood)\n' +
-      '/priceall - All 60 resources prices\n' +
-      '/graph &lt;resource&gt; - Chart image (e.g. /graph stone)\n' +
-      '/list - List all 60 resources\n\n' +
-
-      '━━━━━━━━━━━━━━━━━━━━\n' +
-      '🔔 <b>ALERT COMMANDS</b>\n' +
-      '━━━━━━━━━━━━━━━━━━━━\n\n' +
-      '/alerts - View all your active alerts\n' +
-      '/alert &lt;res&gt; &lt;high%&gt; &lt;low%&gt; - Set alert for ONE resource\n' +
-      '/alertall &lt;high%&gt; &lt;low%&gt; - Set alerts for ALL resources\n' +
-      '/alertall &lt;high%&gt; &lt;low%&gt; keep - Same but skips existing alerts\n' +
-      '/removealert &lt;resource&gt; - Remove one resource alert\n' +
-      '/removeallalerts - Remove ALL alerts\n\n' +
-      '<b>Examples:</b>\n' +
-      '/alert yam 10 15 → yam at +10% (rise) OR -15% (fall)\n' +
-      '/alertall 20 15 → ALL resources at +20% OR -15%\n' +
-      '/alertall 20 15 keep → Same, keeps existing alerts\n\n' +
-
-      '━━━━━━━━━━━━━━━━━━━━\n' +
-      '👛 <b>WALLET COMMANDS</b>\n' +
-      '━━━━━━━━━━━━━━━━━━━━\n\n' +
-      '/connectwallet &lt;address&gt; - Link your wallet\n' +
-      '/wallet - See your linked wallet\n' +
-      '/status - Days remaining &amp; subscription status\n' +
-      '/subscribe - Get payment info\n' +
-      '/pay - Verify FLOWER payment\n\n' +
-
-      '━━━━━━━━━━━━━━━━━━━━\n' +
-      '📱 <b>NTFY PHONE NOTIFICATIONS</b>\n' +
-      '━━━━━━━━━━━━━━━━━━━━\n\n' +
-      '/ntfy - Setup NTFY app for phone notifications\n' +
-      '/ntfytest - Send test notification to phone\n' +
-      '/ntfygraph on/off - Enable/disable graph images in NTFY\n' +
-      '/ntfystatus - Check your NTFY settings\n\n' +
-      '📋 <b>Note:</b> NTFY notifications are public. DO NOT share your topic.\n'
+      pick(locale,
+        '📊 <b>SFL Watcher - Ayuda</b>\n\n<b>Precios</b>\n/price &lt;resource&gt;\n/priceall\n/graph &lt;resource&gt;\n/list\n\n<b>Alertas por porcentaje</b>\n/alerts\n/alert &lt;resource&gt; &lt;sube%&gt; &lt;baja%&gt;\n/alertall &lt;sube%&gt; &lt;baja%&gt; [keep]\n/removealert &lt;resource&gt;\n/removeallalerts\n\n<b>Alertas por precio</b>\n/pricealert &lt;resource&gt; &lt;above|below&gt; &lt;precio&gt;\nEjemplo: /pricealert milk below 0.01\n\n<b>Idioma</b>\n/language es\n/language en\n\n<b>Wallet y pago</b>\n/connectwallet &lt;address&gt;\n/wallet\n/status\n/subscribe\n/pay\n\n<b>NTFY</b>\n/ntfy\n/ntfytest\n/ntfygraph on|off\n/ntfystatus' + adminLine,
+        '📊 <b>SFL Watcher - Help</b>\n\n<b>Prices</b>\n/price &lt;resource&gt;\n/priceall\n/graph &lt;resource&gt;\n/list\n\n<b>Percentage alerts</b>\n/alerts\n/alert &lt;resource&gt; &lt;rise%&gt; &lt;fall%&gt;\n/alertall &lt;rise%&gt; &lt;fall%&gt; [keep]\n/removealert &lt;resource&gt;\n/removeallalerts\n\n<b>Price target alerts</b>\n/pricealert &lt;resource&gt; &lt;above|below&gt; &lt;price&gt;\nExample: /pricealert milk below 0.01\n\n<b>Language</b>\n/language es\n/language en\n\n<b>Wallet and payment</b>\n/connectwallet &lt;address&gt;\n/wallet\n/status\n/subscribe\n/pay\n\n<b>NTFY</b>\n/ntfy\n/ntfytest\n/ntfygraph on|off\n/ntfystatus' + adminLine
+      )
     );
   }
   else if (command === '/list') {
     const blocked = await checkSubscription(chatId);
     if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
-    const resources = ['apple','artichoke','banana','barley','beetroot','blueberry','broccoli','bumpkin emblem','cabbage','carrot','cauliflower','celestine','chewed bone','corn','crimstone','dewberry','duskberry','egg','eggplant','feather','frost pebble','goblin emblem','gold','grape','heart leaf','honey','iron','kale','leather','lemon','lunara','merino wool','milk','moonfur','nightshade emblem','obsidian','olive','onion','orange','parsnip','pepper','potato','pumpkin','radish','rhubarb','ribbon','rice','ruffroot','soybean','stone','sunflorian emblem','sunflower','tomato','turnip','wheat','wild grass','wood','wool','yam','zucchini'];
-    await sendTelegramAwait(chatId, '📋 <b>60 Resources:</b>\n' + resources.join(', '));
+    await sendTelegramAwait(chatId, `${pick(locale, '📋 <b>60 recursos</b>', '📋 <b>60 resources</b>')}\n${ALL_RESOURCES.join(', ')}`);
   }
   else if (command === '/price') {
     const blocked = await checkSubscription(chatId);
@@ -313,11 +351,22 @@ router.post('/webhook', async (req, res) => {
     if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
     const resource = parts.length > 1 ? parts[1].toLowerCase() : null;
     if (!resource) {
-      await sendTelegramAwait(chatId, '❌ Usage: /graph &lt;resource&gt;\nExample: /graph yam');
+      await sendTelegramAwait(chatId, pick(locale, '❌ Uso: /graph &lt;resource&gt;\nEjemplo: /graph yam', '❌ Usage: /graph &lt;resource&gt;\nExample: /graph yam'));
       res.json({ ok: true });
       return;
     }
     await processGraph(chatId, resource);
+  }
+  else if (command === '/pricealert' || command === '/targetalert') {
+    const blocked = await checkSubscription(chatId);
+    if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
+    await processPriceTargetAlert(chatId, parts.slice(1));
+  }
+  else if (command === '/language' || command === '/lang') {
+    await processLanguage(chatId, parts[1]);
+  }
+  else if (command === '/sendpromo') {
+    await processSendPromo(chatId);
   }
   else if (command === '/debug') {
     const blocked = await checkSubscription(chatId);
@@ -403,35 +452,15 @@ router.post('/webhook', async (req, res) => {
 
 async function processPriceSimple(chatId, resource) {
   try {
-    const { getResourceStats } = require('../services/priceFetcher');
+    const locale = await getLocale(chatId);
     const stats = await getResourceStats(resource);
 
     if (!stats) {
-      await sendTelegramAwait(chatId, `❌ No data for ${resource}.
-Wait for cron to collect data.`);
+      await sendTelegramAwait(chatId, pick(locale, `❌ No hay datos para ${resource}.\nEspera a que el cron recoja más información.`, `❌ No data for ${resource}.\nWait for cron to collect more data.`));
       return;
     }
 
-    const { current_price, avg_price, min_price, max_price, percent_vs_avg, snapshot_count } = stats;
-    const pct = percent_vs_avg;
-    const emoji = pct >= 0 ? '📈' : '📉';
-    const sign = pct >= 0 ? '+' : '';
-
-    await sendTelegramAwait(chatId,
-      `<b>${resource.toUpperCase()}</b>
-
-` +
-      `💰 Current: <code>${current_price.toFixed(6)}</code>
-` +
-      `📊 Min: ${min_price.toFixed(6)} | Max: ${max_price.toFixed(6)}
-` +
-      `📐 Avg: ${avg_price.toFixed(6)}
-` +
-      `${emoji} vs Avg: ${sign}${pct.toFixed(2)}%
-
-` +
-      `📈 Data Points: ${snapshot_count}`
-    );
+    await sendTelegramAwait(chatId, formatGraphCaption(resource, stats, locale));
   } catch (error) {
     logger.error('[price] error: ' + error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
@@ -441,8 +470,7 @@ Wait for cron to collect data.`);
 async function processGraph(chatId, resource) {
   try {
     const crypto = require('crypto');
-    const { getResourceHistory, getResourceStats } = require('../services/priceFetcher');
-    const { generateChartBuffer, generateChartDataUrl } = require('../services/chartService');
+    const locale = await getLocale(chatId);
 
     logger.info('[graph] start', { chatId, resource });
     const stats = await getResourceStats(resource);
@@ -465,7 +493,7 @@ async function processGraph(chatId, resource) {
       return;
     }
 
-    const chartPayload = generateChartDataUrl(resource, history);
+    const chartPayload = generateChartDataUrl(resource, history, { locale, statsOverride: stats });
     if (!chartPayload || !chartPayload.chartConfig) {
       throw new Error('Failed to build chart config');
     }
@@ -480,21 +508,7 @@ async function processGraph(chatId, resource) {
       svgBytes: Buffer.byteLength(chartConfig.svg, 'utf8'),
       svgSha256: crypto.createHash('sha256').update(chartConfig.svg).digest('hex'),
     });
-    const aggregationNote = aggregated
-      ? `\n90d view normalized to hourly points`
-      : '';
-
-    const pct = stats ? stats.percent_vs_avg : 0;
-    const trendLabel = pct >= 0 ? 'UP' : 'DOWN';
-    const sign = pct >= 0 ? '+' : '';
-
-    const caption =
-      `<b>${resource.toUpperCase()}</b>${aggregationNote}\n\n` +
-      `Current: <code>${(stats ? stats.current_price : 0).toFixed(6)}</code>\n` +
-      `Min: ${(stats ? stats.min_price : 0).toFixed(6)} | Max: ${(stats ? stats.max_price : 0).toFixed(6)}\n` +
-      `Avg (90d): ${(stats ? stats.avg_price : 0).toFixed(6)}\n` +
-      `${trendLabel} vs Avg: ${sign}${pct.toFixed(2)}%\n\n` +
-      `Data Points: ${pointsUsed}${aggregated ? ` hourly points from ${rawPoints} snapshots` : ` snapshots`} shown`;
+    const caption = formatGraphCaption(resource, stats, locale);
 
     const arrayBuffer = await generateChartBuffer(chartConfig);
     if (!arrayBuffer || arrayBuffer.byteLength === 0) {
@@ -545,9 +559,8 @@ async function processDebug(chatId) {
 }
 
 async function processAlertConfig(chatId, input, isListMode) {
-  const supabase = require('../lib/supabase');
-
   try {
+    const locale = await getLocale(chatId);
     if (isListMode || !input.trim()) {
       const { data: alerts, error } = await supabase
         .from('user_alerts')
@@ -559,61 +572,46 @@ async function processAlertConfig(chatId, input, isListMode) {
       if (error) throw error;
 
       if (!alerts || alerts.length === 0) {
-        await sendTelegramAwait(chatId,
-          '🔔 <b>Your Alerts</b>\n\nNo alerts configured.\n' +
-          'Use /alert &lt;resource&gt; &lt;high%&gt; &lt;low%&gt; to create one.\n' +
-          'Example: /alert yam +10 -15'
-        );
+        await sendTelegramAwait(chatId, pick(locale, '🔔 <b>Tus alertas</b>\n\nNo tienes alertas configuradas.\nUsa /alert o /pricealert para crear una.', '🔔 <b>Your alerts</b>\n\nYou have no alerts configured.\nUse /alert or /pricealert to create one.'));
         return;
       }
 
       const lines = alerts.map(a => {
-        const pctSign = a.threshold_high >= 0 ? '+' : '';
-        const lowSign = a.threshold_low >= 0 ? '+' : '';
-        return `• <b>${a.resource}</b>: ▲${pctSign}${a.threshold_high}% | ▼${lowSign}${a.threshold_low}%`;
+        if (a.alert_type === 'price_above' || a.alert_type === 'price_below') {
+          return `• <b>${a.resource}</b>: 🎯 ${a.alert_type === 'price_above' ? 'above' : 'below'} ${formatTrimmed(a.target_price, 9)}`;
+        }
+        return `• <b>${a.resource}</b>: ▲+${Number(a.threshold_high)}% | ▼${Number(a.threshold_low)}%`;
       });
 
-      await sendTelegramAwait(chatId,
-        '🔔 <b>Your Alerts</b>\n\n' + lines.join('\n') + '\n\n' +
-        'To add/modify: /alert &lt;resource&gt; &lt;high%&gt; &lt;low%&gt;\n' +
-        'To remove: /removealert &lt;resource&gt;'
-      );
+      await sendTelegramAwait(chatId, `${pick(locale, '🔔 <b>Tus alertas</b>', '🔔 <b>Your alerts</b>')}\n\n${lines.join('\n')}\n\n${pick(locale, 'Agregar porcentaje: /alert &lt;resource&gt; &lt;sube%&gt; &lt;baja%&gt;\nAgregar objetivo: /pricealert &lt;resource&gt; &lt;above|below&gt; &lt;precio&gt;\nEliminar: /removealert &lt;resource&gt;', 'Add percentage: /alert &lt;resource&gt; &lt;rise%&gt; &lt;fall%&gt;\nAdd target: /pricealert &lt;resource&gt; &lt;above|below&gt; &lt;price&gt;\nRemove: /removealert &lt;resource&gt;' )}`);
       return;
     }
 
     const tokens = input.trim().split(/\s+/);
     if (tokens.length < 3) {
-      await sendTelegramAwait(chatId,
-        '❌ Usage: /alert &lt;resource&gt; &lt;high%&gt; &lt;low%&gt;\n' +
-        'Example: /alert yam 10 15\n' +
-        '→ Alert when yam is +10% above avg OR -15% below avg\n' +
-        '(First number = rise %, Second number = fall % - no signs needed)'
-      );
+      await sendTelegramAwait(chatId, pick(locale, '❌ Uso: /alert &lt;resource&gt; &lt;sube%&gt; &lt;baja%&gt;\nEjemplo: /alert yam 10 15', '❌ Usage: /alert &lt;resource&gt; &lt;rise%&gt; &lt;fall%&gt;\nExample: /alert yam 10 15'));
       return;
     }
 
     const resource = tokens[0].toLowerCase();
     const rawHigh = parseFloat(tokens[1]);
     const rawLow = parseFloat(tokens[2]);
-
     if (isNaN(rawHigh) || isNaN(rawLow)) {
-      await sendTelegramAwait(chatId, '❌ Usage: /alert &lt;resource&gt; &lt;high%&gt; &lt;low%&gt;\nExample: /alert yam 10 15');
+      await sendTelegramAwait(chatId, pick(locale, '❌ Los porcentajes deben ser números.', '❌ Percentages must be numbers.'));
       return;
     }
 
-    // First number = rise threshold (positive), second = fall threshold (will be negated)
     const thresholdHigh = Math.abs(rawHigh);
     const thresholdLow = -Math.abs(rawLow);
-
     const { data: existing } = await supabase
       .from('user_alerts')
       .select('*')
       .eq('user_id', chatId)
       .eq('resource', resource)
+      .eq('alert_type', 'dual')
       .eq('enabled', true)
-      .single();
+      .maybeSingle();
 
-    let updated;
     if (existing) {
       const { error } = await supabase
         .from('user_alerts')
@@ -621,36 +619,20 @@ async function processAlertConfig(chatId, input, isListMode) {
           alert_type: 'dual',
           threshold_high: thresholdHigh,
           threshold_low: thresholdLow,
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
+          last_notified_rise_at: null,
+          last_notified_fall_at: null,
         })
         .eq('id', existing.id);
-
       if (error) throw error;
-      updated = true;
     } else {
       const { error } = await supabase
         .from('user_alerts')
-        .insert({
-          user_id: chatId,
-          resource,
-          alert_type: 'dual',
-          threshold_high: thresholdHigh,
-          threshold_low: thresholdLow,
-          enabled: true
-        });
-
+        .insert({ user_id: chatId, resource, alert_type: 'dual', threshold_high: thresholdHigh, threshold_low: thresholdLow, enabled: true });
       if (error) throw error;
-      updated = false;
     }
 
-    const action = updated ? 'Updated' : 'Created';
-
-    await sendTelegramAwait(chatId,
-      `✅ ${action} alert for <b>${resource}</b>\n` +
-      `▲ Rise: +${thresholdHigh}% | ▼ Fall: ${thresholdLow}%\n\n` +
-      `You'll be notified when price crosses thresholds.`
-    );
-
+    await sendTelegramAwait(chatId, pick(locale, `✅ Alerta guardada para <b>${resource}</b>\n▲ Sube: +${thresholdHigh}% | ▼ Baja: ${thresholdLow}%`, `✅ Alert saved for <b>${resource}</b>\n▲ Rise: +${thresholdHigh}% | ▼ Fall: ${thresholdLow}%`));
   } catch (error) {
     logger.error('[alert] error: ' + error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
@@ -806,6 +788,87 @@ async function processRemoveAllAlerts(chatId) {
     logger.error('[removeallalerts] error: ' + error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
   }
+}
+
+async function processPriceTargetAlert(chatId, args) {
+  try {
+    const locale = await getLocale(chatId);
+    const [resourceRaw, directionRaw, priceRaw] = args;
+    const resource = String(resourceRaw || '').toLowerCase();
+    const direction = String(directionRaw || '').toLowerCase();
+    const targetPrice = Number(String(priceRaw || '').replace(',', '.'));
+
+    if (!resource || !['above', 'below'].includes(direction) || !Number.isFinite(targetPrice) || targetPrice <= 0) {
+      await sendTelegramAwait(chatId, pick(locale, '❌ Uso: /pricealert &lt;resource&gt; &lt;above|below&gt; &lt;precio&gt;\nEjemplo: /pricealert milk below 0.01', '❌ Usage: /pricealert &lt;resource&gt; &lt;above|below&gt; &lt;price&gt;\nExample: /pricealert milk below 0.01'));
+      return;
+    }
+
+    const alertType = direction === 'above' ? 'price_above' : 'price_below';
+    const { data: existing } = await supabase
+      .from('user_alerts')
+      .select('id')
+      .eq('user_id', chatId)
+      .eq('resource', resource)
+      .eq('alert_type', alertType)
+      .maybeSingle();
+
+    if (existing) {
+      const { error } = await supabase
+        .from('user_alerts')
+        .update({
+          target_price: targetPrice,
+          target_direction: direction,
+          enabled: true,
+          updated_at: new Date().toISOString(),
+          last_notified_target_at: null,
+        })
+        .eq('id', existing.id);
+      if (error) throw error;
+    } else {
+      const { error } = await supabase
+        .from('user_alerts')
+        .insert({
+          user_id: chatId,
+          resource,
+          alert_type: alertType,
+          target_price: targetPrice,
+          target_direction: direction,
+          enabled: true,
+        });
+      if (error) throw error;
+    }
+
+    await sendTelegramAwait(chatId, pick(locale, `✅ Alerta objetivo guardada para <b>${resource}</b>\n🎯 ${direction} ${formatTrimmed(targetPrice, 9)}`, `✅ Target alert saved for <b>${resource}</b>\n🎯 ${direction} ${formatTrimmed(targetPrice, 9)}`));
+  } catch (error) {
+    logger.error('[pricealert] error: ' + error.message);
+    await sendTelegramAwait(chatId, `Error: ${error.message}`);
+  }
+}
+
+async function processLanguage(chatId, languageInput) {
+  try {
+    const current = await getLocale(chatId);
+    if (!languageInput) {
+      await sendTelegramAwait(chatId, pick(current, `🌐 Idioma actual: <b>${current.toUpperCase()}</b>\nUsa /language es o /language en`, `🌐 Current language: <b>${current.toUpperCase()}</b>\nUse /language es or /language en`));
+      return;
+    }
+    const language = await setUserLanguage(String(chatId), languageInput);
+    await sendTelegramAwait(chatId, pick(language, '✅ Idioma cambiado a <b>Español</b>.', '✅ Language changed to <b>English</b>.'));
+  } catch (error) {
+    logger.error('[language] error: ' + error.message);
+    await sendTelegramAwait(chatId, `Error: ${error.message}`);
+  }
+}
+
+async function processSendPromo(chatId) {
+  const locale = await getLocale(chatId);
+  if (!isAdmin(chatId)) {
+    await sendTelegramAwait(chatId, pick(locale, '❌ Este comando es solo para admin.', '❌ This command is admin only.'));
+    return;
+  }
+
+  await setPendingAction(String(chatId), 'sendpromo_es', {});
+  await sendTelegramAwait(chatId, pick(locale, '📣 Manda la promo en español.', '📣 Send the promo in Spanish.'));
 }
 
 // ============================================

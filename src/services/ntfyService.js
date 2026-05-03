@@ -9,6 +9,7 @@
 const NTFY_BASE = 'https://ntfy.sh';
 const CATBOX_BASE = 'https://catbox.fyi';
 const logger = require('../utils/logger');
+const { formatNtfyPercentAlert, formatNtfyPriceAlert } = require('./formatters');
 
 /**
  * Send notification via NTFY
@@ -221,31 +222,12 @@ async function sendNtfyWithAttachment(topic, message, attachmentUrl, options = {
 /**
  * Format price alert for NTFY (simple message, no image)
  */
-function formatNtfyAlert(resource, currentPct, stats, thresholdHigh, thresholdLow) {
-  const isAbove = currentPct > 0;
-  const arrow = isAbove ? '↑' : '↓';
-  const sign = currentPct > 0 ? '+' : '';
+function formatNtfyAlert(resource, currentPct, stats, thresholdHigh, thresholdLow, language = 'es') {
+  return formatNtfyPercentAlert(resource, currentPct, stats, thresholdHigh, thresholdLow, language);
+}
 
-  // 90-day min/max indicator
-  let minMaxLabel = '';
-  if (stats.is90DayMin) {
-    minMaxLabel = ' [90D MIN]';
-  } else if (stats.is90DayMax) {
-    minMaxLabel = ' [90D MAX]';
-  }
-
-  // Color based on direction (green=up, red=down), 90D label adds context
-  const colorLabel = isAbove ? '🟢' : '🔴';
-
-  const avgStr = stats.avg_price?.toFixed(5) || stats.avg_price;
-  const curStr = stats.current_price?.toFixed(5) || stats.current_price;
-
-  const lines = [
-    `${colorLabel} ${arrow} ${resource.toUpperCase()} ${sign}${currentPct}%${minMaxLabel}`,
-    `💰 Price ${curStr} | 📊 Avg ${avgStr}`,
-  ];
-
-  return lines.join('\n');
+function formatNtfyTargetAlert(resource, direction, targetPrice, stats, language = 'es') {
+  return formatNtfyPriceAlert(resource, direction, targetPrice, stats, language);
 }
 
 /**
@@ -280,7 +262,8 @@ function getNtfyInstructions(topic) {
 module.exports = { 
   sendNtfyNotification, 
   sendNtfyNotificationWithImage,
-  formatNtfyAlert, 
+  formatNtfyAlert,
+  formatNtfyTargetAlert,
   getUserNtfyTopic, 
   getNtfyInstructions 
 };

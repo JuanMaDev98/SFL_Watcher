@@ -3,7 +3,7 @@ const router = express.Router();
 const { fetchPrices } = require('../services/priceFetcher');
 const { checkAlerts } = require('../services/alertEngine');
 const { clearChartCache } = require('../services/chartService');
-const { getSubscriptionStatus, getUserByChatId } = require('../services/subscriptionService');
+const { pick } = require('../services/formatters');
 
 const logger = require('../utils/logger');
 
@@ -42,7 +42,7 @@ async function checkExpiringSubscriptions() {
     // Get all users with active subscriptions
     const { data: users, error } = await supabase
       .from('user_subscriptions')
-      .select('user_id, subscription_ends_at, status')
+      .select('user_id, subscription_ends_at, status, preferred_language, notify_expiry')
       .eq('status', 'active');
     
     if (error) {
@@ -61,36 +61,31 @@ async function checkExpiringSubscriptions() {
       // Skip if already expired or more than 24 hours left
       if (hoursUntilExpiry <= 0 || hoursUntilExpiry > EXPIRY_WARNING_HOURS) continue;
       
-      // Get user's Telegram chat_id
-      const { data: user } = await supabase
-        .from('user_subscriptions')
-        .select('chat_id, notify_expiry')
-        .eq('user_id', sub.user_id)
-        .single();
-      
-      if (!user?.chat_id) continue;
+      const chatId = sub.user_id;
+      if (!chatId) continue;
       
       // Check if already notified today (within last 23 hours to avoid spam)
-      const lastNotified = user.notify_expiry ? new Date(user.notify_expiry) : null;
+      const lastNotified = sub.notify_expiry ? new Date(sub.notify_expiry) : null;
       if (lastNotified && (now - lastNotified) < 23 * 60 * 60 * 1000) continue;
       
       // Calculate days/hours remaining
       const daysLeft = Math.floor(hoursUntilExpiry / 24);
       const hoursLeft = Math.floor(hoursUntilExpiry % 24);
-      const timeLeftStr = daysLeft > 0 
-        ? `${daysLeft} day${daysLeft > 1 ? 's' : ''} and ${hoursLeft} hour${hoursLeft !== 1 ? 's' : ''}`
-        : `${hoursLeft} hour${hoursLeft !== 1 ? 's' : ''}`;
+      const locale = sub.preferred_language || 'es';
+      const timeLeftStr = locale === 'en'
+        ? (daysLeft > 0 ? `${daysLeft} day${daysLeft > 1 ? 's' : ''} and ${hoursLeft} hour${hoursLeft !== 1 ? 's' : ''}` : `${hoursLeft} hour${hoursLeft !== 1 ? 's' : ''}`)
+        : (daysLeft > 0 ? `${daysLeft} día${daysLeft > 1 ? 's' : ''} y ${hoursLeft} hora${hoursLeft !== 1 ? 's' : ''}` : `${hoursLeft} hora${hoursLeft !== 1 ? 's' : ''}`);
       
       const message = [
-        '⏰ <b>⚠️ Subscription Expiring Soon!</b>',
+        pick(locale, '⏰ <b>⚠️ Tu suscripción expira pronto</b>', '⏰ <b>⚠️ Your subscription expires soon</b>'),
         '',
-        `Your subscription expires in <b>${timeLeftStr}</b>.`,
+        pick(locale, `Tu suscripción vence en <b>${timeLeftStr}</b>.`, `Your subscription expires in <b>${timeLeftStr}</b>.`),
         '',
-        'To continue using SFL Watcher, send <code>/pay</code> to renew.',
+        pick(locale, 'Para seguir usando SFL Watcher, envía <code>/pay</code> para renovar.', 'To keep using SFL Watcher, send <code>/pay</code> to renew.'),
         'Cost: <b>$1 USD</b> (~30 days)'
       ].join('\n');
       
-      await sendTelegram(user.chat_id, message);
+      await sendTelegram(chatId, message);
       
       // Update notify_expiry timestamp
       await supabase

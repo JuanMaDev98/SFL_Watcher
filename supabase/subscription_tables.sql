@@ -3,6 +3,12 @@ CREATE TABLE IF NOT EXISTS user_subscriptions (
   id SERIAL PRIMARY KEY,
   user_id TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'trial', -- 'trial', 'active', 'expired'
+  preferred_language TEXT NOT NULL DEFAULT 'es',
+  pending_action TEXT,
+  pending_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ntfy_enabled BOOLEAN NOT NULL DEFAULT false,
+  ntfy_graph_enabled BOOLEAN NOT NULL DEFAULT true,
+  notify_expiry TIMESTAMPTZ,
   trial_started_at TIMESTAMPTZ DEFAULT NOW(),
   trial_ends_at TIMESTAMPTZ,
   subscription_ends_at TIMESTAMPTZ,
@@ -53,3 +59,11 @@ $$ LANGUAGE plpgsql;
 CREATE INDEX IF NOT EXISTS idx_user_subscriptions_user_id ON user_subscriptions(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_payments_user_id ON user_payments(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_payments_tx_hash ON user_payments(tx_hash);
+
+ALTER TABLE user_subscriptions
+ADD COLUMN IF NOT EXISTS preferred_language TEXT NOT NULL DEFAULT 'es',
+ADD COLUMN IF NOT EXISTS pending_action TEXT,
+ADD COLUMN IF NOT EXISTS pending_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+ADD COLUMN IF NOT EXISTS ntfy_enabled BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN IF NOT EXISTS ntfy_graph_enabled BOOLEAN NOT NULL DEFAULT true,
+ADD COLUMN IF NOT EXISTS notify_expiry TIMESTAMPTZ;

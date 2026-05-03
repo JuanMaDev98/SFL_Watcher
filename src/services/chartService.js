@@ -14,6 +14,7 @@ const fs = require('fs');
 const path = require('path');
 const { Resvg } = require('@resvg/resvg-js');
 const logger = require('../utils/logger');
+const { getChartLocaleStrings } = require('./formatters');
 
 const DEFAULT_WIDTH = 1100;
 const DEFAULT_HEIGHT = 560;
@@ -29,6 +30,7 @@ const SEASON_STYLES = {
   autumn: { label: 'Autumn', fill: '#f97316', opacity: 0.08 },
   winter: { label: 'Winter', fill: '#60a5fa', opacity: 0.09 },
 };
+const PRIMARY_CHART_COLOR = '#26a69a';
 
 const chartCache = new Map();
 const FONT_FILES = [
@@ -405,8 +407,16 @@ function buildChartSvg(resource, rawHistory, options = {}) {
   const prepared = prepareDisplayHistory(rawHistory, options);
   const history = prepared.displayHistory;
   const rawStats = calculateStats(rawHistory);
-  const displayStats = calculateStats(history);
-  const stats = rawStats;
+  const stats = options.statsOverride ? {
+    ...rawStats,
+    current: Number(options.statsOverride.current_price ?? rawStats.current),
+    min: Number(options.statsOverride.min_price ?? rawStats.min),
+    max: Number(options.statsOverride.max_price ?? rawStats.max),
+    avg: Number(options.statsOverride.avg_price ?? rawStats.avg),
+    pct: Number(options.statsOverride.percent_vs_avg ?? rawStats.pct).toFixed(2),
+    count: Number(options.statsOverride.snapshot_count ?? rawStats.count),
+  } : rawStats;
+  const chartStrings = getChartLocaleStrings(options.locale || 'es');
   const points = buildLinePoints(history, plot, stats.min, stats.max);
   const areaPath = buildAreaPath(points, plot);
   const linePath = buildLinePath(points);
@@ -420,12 +430,11 @@ function buildChartSvg(resource, rawHistory, options = {}) {
   const ticks = buildTicks(history, stats, plot);
   const weeklyMarkers = buildWeeklyMarkers(history, plot);
   const seasonBands = buildSeasonBands(history, plot);
-  const trendUp = rawStats.current >= rawStats.avg;
-  const trendColor = trendUp ? '#26a69a' : '#ef5350';
+  const trendColor = PRIMARY_CHART_COLOR;
   const title = `${resource.toUpperCase()} • 90D`;
   const subtitle = prepared.aggregated
-    ? `${prepared.rawCount} raw snapshots → ${prepared.displayCount} hourly points • ${formatDateLabel(rawStats.oldest)} → ${formatDateLabel(rawStats.newest)}`
-    : `${prepared.displayCount} snapshots • ${formatDateLabel(rawStats.oldest)} → ${formatDateLabel(rawStats.newest)}`;
+    ? `${prepared.rawCount} ${chartStrings.snapshotsRange} → ${prepared.displayCount} ${chartStrings.hourlyPointsFrom} ${prepared.rawCount} ${chartStrings.snapshotsRange} • ${formatDateLabel(rawStats.oldest)} → ${formatDateLabel(rawStats.newest)}`
+    : `${prepared.displayCount} ${chartStrings.snapshotsRange} • ${formatDateLabel(rawStats.oldest)} → ${formatDateLabel(rawStats.newest)}`;
 
   const yGrid = ticks.yValues.map((t, index) => `
     <line x1="${plot.left}" y1="${t.y.toFixed(2)}" x2="${plot.left + plot.width}" y2="${t.y.toFixed(2)}" stroke="#273142" stroke-width="${index === 0 || index === ticks.yValues.length - 1 ? '1.1' : '0.9'}" opacity="${index % 2 === 0 ? '1' : '0.72'}" />
@@ -447,13 +456,13 @@ function buildChartSvg(resource, rawHistory, options = {}) {
   const legendY = 86;
   const seasonLegendY = 108;
   const legendItems = [
-    buildLegendItem(36, legendY, { icon: 'down', color: '#60a5fa', label: 'MIN', value: formatPrice(rawStats.min, 6) }),
-    buildLegendItem(245, legendY, { icon: 'up', color: '#fb7185', label: 'MAX', value: formatPrice(rawStats.max, 6) }),
-    buildLegendItem(456, legendY, { icon: 'square', color: '#fbbf24', label: 'AVG', value: formatPrice(rawStats.avg, 6) }),
-    buildLegendItem(36, seasonLegendY, { icon: 'square', color: SEASON_STYLES.spring.fill, fillOpacity: 0.25, label: SEASON_STYLES.spring.label, labelColor: '#b7f7c8' }),
-    buildLegendItem(168, seasonLegendY, { icon: 'square', color: SEASON_STYLES.summer.fill, fillOpacity: 0.25, label: SEASON_STYLES.summer.label, labelColor: '#fef08a' }),
-    buildLegendItem(308, seasonLegendY, { icon: 'square', color: SEASON_STYLES.autumn.fill, fillOpacity: 0.25, label: SEASON_STYLES.autumn.label, labelColor: '#fdba74' }),
-    buildLegendItem(444, seasonLegendY, { icon: 'square', color: SEASON_STYLES.winter.fill, fillOpacity: 0.25, label: SEASON_STYLES.winter.label, labelColor: '#bfdbfe' }),
+    buildLegendItem(36, legendY, { icon: 'down', color: '#60a5fa', label: chartStrings.min, value: formatPrice(stats.min, 6) }),
+    buildLegendItem(245, legendY, { icon: 'up', color: '#fb7185', label: chartStrings.max, value: formatPrice(stats.max, 6) }),
+    buildLegendItem(456, legendY, { icon: 'square', color: '#fbbf24', label: chartStrings.avg, value: formatPrice(stats.avg, 6) }),
+    buildLegendItem(36, seasonLegendY, { icon: 'square', color: SEASON_STYLES.spring.fill, fillOpacity: 0.25, label: chartStrings.spring, labelColor: '#b7f7c8' }),
+    buildLegendItem(168, seasonLegendY, { icon: 'square', color: SEASON_STYLES.summer.fill, fillOpacity: 0.25, label: chartStrings.summer, labelColor: '#fef08a' }),
+    buildLegendItem(308, seasonLegendY, { icon: 'square', color: SEASON_STYLES.autumn.fill, fillOpacity: 0.25, label: chartStrings.autumn, labelColor: '#fdba74' }),
+    buildLegendItem(444, seasonLegendY, { icon: 'square', color: SEASON_STYLES.winter.fill, fillOpacity: 0.25, label: chartStrings.winter, labelColor: '#bfdbfe' }),
   ].join('');
 
   return `
@@ -474,8 +483,8 @@ function buildChartSvg(resource, rawHistory, options = {}) {
     ${buildTextPath(title, { x: 36, y: 40, fontSize: 28, fill: '#f4f7fb' })}
     ${buildTextPath(subtitle, { x: 36, y: 62, fontSize: 14, fill: '#8fa0b5' })}
 
-    ${buildTextPath('Current', { x: width - 36, y: 38, fontSize: 15, fill: '#8fa0b5', anchor: 'end' })}
-    ${buildTextPath(formatPrice(rawStats.current), { x: width - 36, y: 62, fontSize: 26, fill: trendColor, anchor: 'end' })}
+    ${buildTextPath(chartStrings.current, { x: width - 36, y: 38, fontSize: 15, fill: '#8fa0b5', anchor: 'end' })}
+    ${buildTextPath(formatPrice(stats.current), { x: width - 36, y: 62, fontSize: 26, fill: trendColor, anchor: 'end' })}
     ${legendItems}
 
     ${seasonBandRects}
@@ -493,9 +502,9 @@ function buildChartSvg(resource, rawHistory, options = {}) {
     ${minPoint ? buildTriangleMarker(minPoint.x, minPoint.y, 'down', '#60a5fa', 6.5) : ''}
     ${maxPoint ? buildTriangleMarker(maxPoint.x, maxPoint.y, 'up', '#fb7185', 6.5) : ''}
 
-    ${buildTextPath(`vs AVG: ${rawStats.pct >= 0 ? '+' : ''}${rawStats.pct}%`, { x: 36, y: height - 14, fontSize: 13, fill: '#8fa0b5' })}
-    ${buildTextPath('Monday weekly separators + seasonal background', { x: width / 2, y: height - 14, fontSize: 12, fill: '#93c5fd', anchor: 'middle' })}
-    ${buildTextPath(prepared.aggregated ? 'Hourly normalized for 90d view • current exact' : 'Raw timestamps • current exact', { x: width - 36, y: height - 14, fontSize: 13, fill: '#8fa0b5', anchor: 'end' })}
+    ${buildTextPath(`${chartStrings.vsAvg}: ${Number(stats.pct) >= 0 ? '+' : ''}${stats.pct}%`, { x: 36, y: height - 14, fontSize: 13, fill: '#8fa0b5' })}
+    ${buildTextPath(chartStrings.mondayBands, { x: width / 2, y: height - 14, fontSize: 12, fill: '#93c5fd', anchor: 'middle' })}
+    ${buildTextPath(prepared.aggregated ? chartStrings.hourlyNormalized : chartStrings.rawTimestamps, { x: width - 36, y: height - 14, fontSize: 13, fill: '#8fa0b5', anchor: 'end' })}
   </svg>`;
 }
 
