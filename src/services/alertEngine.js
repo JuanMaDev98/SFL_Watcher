@@ -2,10 +2,84 @@ const supabase = require('../lib/supabase');
 const { sendTelegramMessage, formatAlertMessage, formatTargetAlertMessage, sendTelegramPhoto } = require('./telegramService');
 const { generateChartDataUrl, generateChartBuffer } = require('./chartService');
 const { sendNtfyNotification, formatNtfyAlert, formatNtfyTargetAlert, getUserNtfyTopic } = require('./ntfyService');
-const { getUserLanguage } = require('./subscriptionService');
+const { getUserLanguage, getBroadcastUsers } = require('./subscriptionService');
 const { getResourceHistory } = require('./priceFetcher');
 const { shouldThrottleAlert, recordError } = require('./runtimeStatsService');
 const logger = require('../utils/logger');
+
+const percentAlertState = new Map();
+const targetAlertState = new Map();
+const criticalAlertState = new Map();
+const CRITICAL_THRESHOLD_PCT = 50;
+const CRITICAL_STEP_PCT = 20;
+const CRITICAL_RESET_PCT = 35;
+
+function getPercentResetThreshold(threshold, direction) {
+  const abs = Math.abs(Number(threshold || 0));
+  const resetAbs = abs * 0.75;
+  return direction === 'rise' ? resetAbs : -resetAbs;
+}
+
+function getPercentStep(currentPct, threshold, direction) {
+  const current = Number(currentPct || 0);
+  const base = Math.abs(Number(threshold || 0));
+  if (!base) return 0;
+  if (direction === 'rise') {
+    if (current < base) return 0;
+    return 1 + Math.floor((current - base) / base);
+  }
+  if (current > -base) return 0;
+  return 1 + Math.floor((Math.abs(current) - base) / base);
+}
+
+function getTargetResetPrice(targetPrice, direction) {
+  const target = Number(targetPrice || 0);
+  if (!target) return 0;
+  return direction === 'above' ? target * 0.98 : target * 1.02;
+}
+
+function getTargetStep(currentPrice, targetPrice, direction) {
+  const current = Number(currentPrice || 0);
+  const target = Number(targetPrice || 0);
+  if (!target) return 0;
+
+  if (direction === 'above') {
+    if (current < target) return 0;
+    const progressPct = ((current - target) / target) * 100;
+    return 1 + Math.floor(progressPct / 20);
+  }
+
+  if (current > target) return 0;
+  const progressPct = ((target - current) / target) * 100;
+  return 1 + Math.floor(progressPct / 20);
+}
+
+function getOrInitPercentState(alertId, alert) {
+  if (!percentAlertState.has(alertId)) {
+    percentAlertState.set(alertId, {
+      riseStep: alert?.last_notified_rise_at ? 1 : 0,
+      fallStep: alert?.last_notified_fall_at ? 1 : 0,
+    });
+  }
+  return percentAlertState.get(alertId);
+}
+
+function getOrInitTargetState(alertId, alert, stats) {
+  if (!targetAlertState.has(alertId)) {
+    const direction = alert?.target_direction || (alert?.alert_type === 'price_above' ? 'above' : 'below');
+    const initialStep = alert?.last_notified_target_at ? getTargetStep(stats?.current_price, alert?.target_price, direction) || 1 : 0;
+    targetAlertState.set(alertId, { step: initialStep });
+  }
+  return targetAlertState.get(alertId);
+}
+
+function getCriticalState(userId, resource, direction) {
+  const key = `${userId}:${resource}:${direction}`;
+  if (!criticalAlertState.has(key)) {
+    criticalAlertState.set(key, { step: 0 });
+  }
+  return criticalAlertState.get(key);
+}
 
 /**
  * Get stats for a resource using optimized SQL function
@@ -138,6 +212,9 @@ async function checkAlerts() {
   logger.info('[AlertEngine] Checking alerts after price fetch...');
 
   try {
+    const broadcastUsers = await getBroadcastUsers();
+    const latestResources = await getAllResourcesForCriticals();
+
     // Get all active alerts (simple query, no joins)
     const { data: alerts, error } = await supabase
       .from('user_alerts')
@@ -145,34 +222,42 @@ async function checkAlerts() {
       .eq('enabled', true);
 
     if (error) throw error;
-    if (!alerts || alerts.length === 0) {
-      logger.info('[AlertEngine] No active alerts');
-      return;
-    }
-
-    logger.info(`[AlertEngine] Checking ${alerts.length} alerts`);
+    logger.info(`[AlertEngine] Checking ${(alerts || []).length} alerts`);
 
     // Group by resource to get stats once per resource
     const alertsByResource = {};
-    alerts.forEach(a => {
+    (alerts || []).forEach(a => {
       if (!alertsByResource[a.resource]) alertsByResource[a.resource] = [];
       alertsByResource[a.resource].push(a);
     });
 
+    const resourcesToCheck = new Set([...Object.keys(alertsByResource), ...latestResources]);
+    
     // Check each resource
-    for (const [resource, resourceAlerts] of Object.entries(alertsByResource)) {
-      await checkResourceAlerts(resource, resourceAlerts);
+    for (const resource of resourcesToCheck) {
+      await checkResourceAlerts(resource, alertsByResource[resource] || [], broadcastUsers);
     }
 
   } catch (error) {
     logger.error('[AlertEngine] Error:', error.message);
+    recordError('alertEngine.checkAlerts', error.message);
   }
+}
+
+async function getAllResourcesForCriticals() {
+  const { data, error } = await supabase
+    .from('price_snapshots')
+    .select('resource')
+    .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+    .order('resource');
+  if (error) throw error;
+  return [...new Set((data || []).map(row => row.resource).filter(Boolean))];
 }
 
 /**
  * Check alerts for a specific resource
  */
-async function checkResourceAlerts(resource, alerts) {
+async function checkResourceAlerts(resource, alerts, broadcastUsers = []) {
   try {
     // Get stats using direct query
     const stats = await getResourceStats(resource);
@@ -193,93 +278,96 @@ async function checkResourceAlerts(resource, alerts) {
       const targetPrice = alert.target_price != null ? Number(alert.target_price) : null;
       const targetDirection = alert.target_direction || null;
       const now = new Date();
-      const cooldownHours = 12;
-
-      let triggered = false;
-      let withinCooldown = false;
       let updates = {};
 
       if (alertType === 'price_above' || alertType === 'price_below') {
         const isAboveTarget = alertType === 'price_above';
-        triggered = targetPrice != null && (isAboveTarget ? Number(stats.current_price) >= targetPrice : Number(stats.current_price) <= targetPrice);
-        if (triggered && alert.last_notified_target_at) {
-          const lastNotified = new Date(alert.last_notified_target_at);
-          withinCooldown = (now - lastNotified) < (cooldownHours * 60 * 60 * 1000);
+        const resolvedDirection = targetDirection || (isAboveTarget ? 'above' : 'below');
+        const targetState = getOrInitTargetState(alert.id, alert, stats);
+        const resetPrice = getTargetResetPrice(targetPrice, resolvedDirection);
+
+        if (resolvedDirection === 'above' && Number(stats.current_price) <= resetPrice) {
+          targetState.step = 0;
+          updates.last_notified_target_at = null;
+        }
+        if (resolvedDirection === 'below' && Number(stats.current_price) >= resetPrice) {
+          targetState.step = 0;
+          updates.last_notified_target_at = null;
         }
 
-        if (!triggered) {
-          logger.info(`[AlertEngine] ${resource}: current price ${stats.current_price} has not crossed target ${targetPrice}`);
-          continue;
+        const step = getTargetStep(stats.current_price, targetPrice, resolvedDirection);
+        if (step > targetState.step) {
+          const runtimeThrottleKey = `${alert.user_id}:${resource}:${alertType}:${targetPrice}:step:${step}`;
+          if (!shouldThrottleAlert(runtimeThrottleKey)) {
+            const language = await getUserLanguage(String(alert.user_id));
+            await sendTelegramTargetAlert(alert.user_id, resource, resolvedDirection, targetPrice, stats, language);
+
+            const ntfySettings = await getUserNtfyEnabled(alert.user_id);
+            if (ntfySettings.enabled) {
+              await sendNtfyTargetAlertNotification(alert.user_id, resource, resolvedDirection, targetPrice, stats, language);
+            }
+
+            targetState.step = step;
+            updates.last_notified_target_at = now.toISOString();
+          }
         }
-
-        if (withinCooldown) {
-          logger.info(`[AlertEngine] ${resource}: target alert triggered but within cooldown, skipping`);
-          continue;
-        }
-
-        const runtimeThrottleKey = `${alert.user_id}:${resource}:${alertType}:${targetPrice}`;
-        if (shouldThrottleAlert(runtimeThrottleKey)) {
-          logger.info(`[AlertEngine] ${resource}: runtime throttle suppressed duplicate target alert`);
-          continue;
-        }
-
-        const language = await getUserLanguage(String(alert.user_id));
-        await sendTelegramTargetAlert(alert.user_id, resource, targetDirection || (isAboveTarget ? 'above' : 'below'), targetPrice, stats, language);
-
-        const ntfySettings = await getUserNtfyEnabled(alert.user_id);
-        if (ntfySettings.enabled) {
-          await sendNtfyTargetAlertNotification(alert.user_id, resource, targetDirection || (isAboveTarget ? 'above' : 'below'), targetPrice, stats, language);
-        }
-
-        updates = { last_notified_target_at: now.toISOString() };
       } else {
-        const isRiseAlert = currentPct >= thresholdHigh;
-        const isFallAlert = currentPct <= thresholdLow;
-        triggered = isRiseAlert || isFallAlert;
+        const state = getOrInitPercentState(alert.id, alert);
+        const riseReset = getPercentResetThreshold(thresholdHigh, 'rise');
+        const fallReset = getPercentResetThreshold(thresholdLow, 'fall');
 
-        if (!triggered) {
-          logger.info(`[AlertEngine] ${resource}: ${currentPct}% within thresholds (+${thresholdHigh}/${thresholdLow}%)`);
-          continue;
+        if (currentPct <= riseReset && state.riseStep !== 0) {
+          state.riseStep = 0;
+          updates.last_notified_rise_at = null;
+        }
+        if (currentPct >= fallReset && state.fallStep !== 0) {
+          state.fallStep = 0;
+          updates.last_notified_fall_at = null;
         }
 
-        if (isRiseAlert && alert.last_notified_rise_at) {
-          const lastNotified = new Date(alert.last_notified_rise_at);
-          withinCooldown = (now - lastNotified) < (cooldownHours * 60 * 60 * 1000);
-        } else if (isFallAlert && alert.last_notified_fall_at) {
-          const lastNotified = new Date(alert.last_notified_fall_at);
-          withinCooldown = (now - lastNotified) < (cooldownHours * 60 * 60 * 1000);
+        const riseStep = getPercentStep(currentPct, thresholdHigh, 'rise');
+        const fallStep = getPercentStep(currentPct, thresholdLow, 'fall');
+
+        if (riseStep > state.riseStep) {
+          const runtimeThrottleKey = `${alert.user_id}:${resource}:rise:${thresholdHigh}:step:${riseStep}`;
+          if (!shouldThrottleAlert(runtimeThrottleKey)) {
+            const language = await getUserLanguage(String(alert.user_id));
+            await sendTelegramAlert(alert.user_id, resource, currentPct, stats, thresholdHigh, thresholdLow, language);
+            const ntfySettings = await getUserNtfyEnabled(alert.user_id);
+            if (ntfySettings.enabled) {
+              await sendNtfyAlertNotification(alert.user_id, resource, currentPct, stats, thresholdHigh, thresholdLow, language, ntfySettings.graphEnabled);
+            }
+            state.riseStep = riseStep;
+            state.fallStep = 0;
+            updates.last_notified_rise_at = now.toISOString();
+            updates.last_notified_fall_at = null;
+          }
+        } else if (fallStep > state.fallStep) {
+          const runtimeThrottleKey = `${alert.user_id}:${resource}:fall:${thresholdLow}:step:${fallStep}`;
+          if (!shouldThrottleAlert(runtimeThrottleKey)) {
+            const language = await getUserLanguage(String(alert.user_id));
+            await sendTelegramAlert(alert.user_id, resource, currentPct, stats, thresholdHigh, thresholdLow, language);
+            const ntfySettings = await getUserNtfyEnabled(alert.user_id);
+            if (ntfySettings.enabled) {
+              await sendNtfyAlertNotification(alert.user_id, resource, currentPct, stats, thresholdHigh, thresholdLow, language, ntfySettings.graphEnabled);
+            }
+            state.fallStep = fallStep;
+            state.riseStep = 0;
+            updates.last_notified_fall_at = now.toISOString();
+            updates.last_notified_rise_at = null;
+          }
         }
-
-        if (withinCooldown) {
-          logger.info(`[AlertEngine] ${resource}: alert triggered (${isRiseAlert ? 'RISE' : 'FALL'}) but within 12h cooldown, skipping`);
-          continue;
-        }
-
-        const runtimeThrottleKey = `${alert.user_id}:${resource}:${isRiseAlert ? 'rise' : 'fall'}:${thresholdHigh}:${thresholdLow}`;
-        if (shouldThrottleAlert(runtimeThrottleKey)) {
-          logger.info(`[AlertEngine] ${resource}: runtime throttle suppressed duplicate percent alert`);
-          continue;
-        }
-
-        const language = await getUserLanguage(String(alert.user_id));
-        await sendTelegramAlert(alert.user_id, resource, currentPct, stats, thresholdHigh, thresholdLow, language);
-
-        const ntfySettings = await getUserNtfyEnabled(alert.user_id);
-        if (ntfySettings.enabled) {
-          await sendNtfyAlertNotification(alert.user_id, resource, currentPct, stats, thresholdHigh, thresholdLow, language, ntfySettings.graphEnabled);
-        }
-
-        const updateField = isRiseAlert ? 'last_notified_rise_at' : 'last_notified_fall_at';
-        updates = { [updateField]: now.toISOString() };
-        if (isFallAlert) updates.last_notified_rise_at = null;
-        if (isRiseAlert) updates.last_notified_fall_at = null;
       }
 
-      await supabase
-        .from('user_alerts')
-        .update(updates)
-        .eq('id', alert.id);
+      if (Object.keys(updates).length > 0) {
+        await supabase
+          .from('user_alerts')
+          .update(updates)
+          .eq('id', alert.id);
+      }
     }
+
+    await processCriticalAlerts(resource, stats, currentPct, broadcastUsers);
 
   } catch (error) {
     logger.error(`[AlertEngine] Error checking ${resource}:`, error.message);
@@ -388,6 +476,60 @@ async function sendNtfyTargetAlertNotification(userId, resource, direction, targ
     recordError('alertEngine.sendNtfyTargetAlertNotification', error.message);
     return false;
   }
+}
+
+async function processCriticalAlerts(resource, stats, currentPct, broadcastUsers = []) {
+  const eligibleUsers = (broadcastUsers || []).filter(user => user.criticalAlertsEnabled !== false);
+  if (!eligibleUsers.length) return;
+
+  const directions = [];
+  if (currentPct >= CRITICAL_THRESHOLD_PCT) directions.push('up');
+  if (currentPct <= -CRITICAL_THRESHOLD_PCT) directions.push('down');
+
+  for (const user of eligibleUsers) {
+    for (const direction of ['up', 'down']) {
+      const state = getCriticalState(user.userId, resource, direction);
+      if (direction === 'up' && currentPct < CRITICAL_RESET_PCT) state.step = 0;
+      if (direction === 'down' && currentPct > -CRITICAL_RESET_PCT) state.step = 0;
+    }
+
+    for (const direction of directions) {
+      const state = getCriticalState(user.userId, resource, direction);
+      const magnitude = Math.abs(currentPct);
+      const step = 1 + Math.floor((magnitude - CRITICAL_THRESHOLD_PCT) / CRITICAL_STEP_PCT);
+      if (step <= state.step) continue;
+
+      const throttleKey = `${user.userId}:${resource}:critical:${direction}:step:${step}`;
+      if (shouldThrottleAlert(throttleKey)) continue;
+
+      await sendTelegramCriticalAlert(user.userId, resource, currentPct, step, user.language || 'es');
+      if (user.ntfyEnabled) {
+        await sendNtfyCriticalAlert(user.userId, resource, currentPct, step, user.language || 'es');
+      }
+      state.step = step;
+    }
+  }
+}
+
+async function sendTelegramCriticalAlert(userId, resource, currentPct, step, language = 'es') {
+  const isUp = Number(currentPct) >= 0;
+  const message = language === 'en'
+    ? `🚨 <b>Critical market alert</b>\n\n<b>${resource.toUpperCase()}</b> is now at <code>${currentPct.toFixed(2)}%</code> vs average.\nThis is a critical ${isUp ? 'upside' : 'downside'} move${step > 1 ? ` (step ${step})` : ''}.`
+    : `🚨 <b>Alerta crítica de mercado</b>\n\n<b>${resource.toUpperCase()}</b> está ahora en <code>${currentPct.toFixed(2)}%</code> vs promedio.\nEste es un movimiento crítico ${isUp ? 'al alza' : 'a la baja'}${step > 1 ? ` (escalón ${step})` : ''}.`;
+  await sendTelegramMessage(userId, message);
+}
+
+async function sendNtfyCriticalAlert(userId, resource, currentPct, step, language = 'es') {
+  const isUp = Number(currentPct) >= 0;
+  const topic = getUserNtfyTopic(userId);
+  const message = language === 'en'
+    ? `${resource.toUpperCase()} critical move\n\n${currentPct.toFixed(2)}% vs average. ${isUp ? 'Strong upside move' : 'Strong downside move'}${step > 1 ? ` (step ${step})` : ''}.`
+    : `${resource.toUpperCase()} movimiento crítico\n\n${currentPct.toFixed(2)}% vs promedio. ${isUp ? 'Fuerte movimiento al alza' : 'Fuerte movimiento a la baja'}${step > 1 ? ` (escalón ${step})` : ''}.`;
+  return sendNtfyNotification(topic, message, {
+    title: 'Critical Alert',
+    tags: 'rotating_light',
+    priority: 5,
+  });
 }
 
 /**

@@ -17,6 +17,8 @@ const {
   clearPendingAction,
   getFreeTierUsers,
   getBroadcastUsers,
+  getCriticalAlertsEnabled,
+  setCriticalAlertsEnabled,
   getNtfySettings,
   updateNtfySettings,
   connectWallet,
@@ -483,13 +485,15 @@ router.post('/webhook', async (req, res) => {
         '/alertall &lt;high%&gt; &lt;low%&gt; - Crea alertas para todos los recursos\n' +
         '/alertall &lt;high%&gt; &lt;low%&gt; keep - Igual, pero conserva las existentes\n' +
         '/pricealert &lt;res&gt; &lt;above|below&gt; &lt;price&gt; - Alerta por precio objetivo\n' +
+        '/criticalalerts on|off - Activa o desactiva alertas críticas automáticas\n' +
         '/removealert &lt;resource&gt; - Elimina la alerta de un recurso\n' +
         '/removeallalerts - Elimina todas las alertas\n\n' +
         '<b>Ejemplos:</b>\n' +
         '/alert yam 10 15 → yam a +10% o -15% vs promedio\n' +
         '/alertall 20 15 → todos los recursos a +20% o -15%\n' +
         '/alertall 20 15 keep → igual, manteniendo alertas existentes\n' +
-        '/pricealert milk below 0.01 → alerta si milk baja de 0.01\n\n' +
+        '/pricealert milk below 0.01 → alerta si milk baja de 0.01\n' +
+        '/criticalalerts off → desactiva alertas críticas automáticas\n\n' +
         '🌐 <b>IDIOMA</b>\n' +
         '━━━━━━━━━━━━━━━━━━━━\n\n' +
         '/language es - Cambiar a español\n' +
@@ -517,13 +521,15 @@ router.post('/webhook', async (req, res) => {
         '/alertall &lt;high%&gt; &lt;low%&gt; - Set alerts for all resources\n' +
         '/alertall &lt;high%&gt; &lt;low%&gt; keep - Same, but keeps existing alerts\n' +
         '/pricealert &lt;res&gt; &lt;above|below&gt; &lt;price&gt; - Target price alert\n' +
+        '/criticalalerts on|off - Enable or disable automatic critical alerts\n' +
         '/removealert &lt;resource&gt; - Remove one resource alert\n' +
         '/removeallalerts - Remove all alerts\n\n' +
         '<b>Examples:</b>\n' +
         '/alert yam 10 15 → yam at +10% or -15% vs average\n' +
         '/alertall 20 15 → all resources at +20% or -15%\n' +
         '/alertall 20 15 keep → same, keeping existing alerts\n' +
-        '/pricealert milk below 0.01 → alert if milk drops below 0.01\n\n' +
+        '/pricealert milk below 0.01 → alert if milk drops below 0.01\n' +
+        '/criticalalerts off → disable automatic critical alerts\n\n' +
         '🌐 <b>LANGUAGE</b>\n' +
         '━━━━━━━━━━━━━━━━━━━━\n\n' +
         '/language es - Switch to Spanish\n' +
@@ -578,6 +584,9 @@ router.post('/webhook', async (req, res) => {
   }
   else if (command === '/language' || command === '/lang') {
     await processLanguage(chatId, parts[1]);
+  }
+  else if (command === '/criticalalerts' || command === '/critical') {
+    await processCriticalAlertsCommand(chatId, parts[1]);
   }
   else if (command === '/sendpromo') {
     await processSendPromo(chatId);
@@ -1093,6 +1102,47 @@ async function processLanguage(chatId, languageInput) {
     await sendTelegramAwait(chatId, pick(language, '✅ Idioma cambiado a <b>Español</b>.', '✅ Language changed to <b>English</b>.'));
   } catch (error) {
     logger.error('[language] error: ' + error.message);
+    await sendTelegramAwait(chatId, `Error: ${error.message}`);
+  }
+}
+
+async function processCriticalAlertsCommand(chatId, value) {
+  try {
+    const locale = await getLocale(chatId);
+    if (!value) {
+      const enabled = await getCriticalAlertsEnabled(String(chatId));
+      await sendTelegramAwait(chatId, pick(locale,
+        `🚨 Alertas críticas: <b>${enabled ? 'ON' : 'OFF'}</b>\n\nUsa /criticalalerts on o /criticalalerts off`,
+        `🚨 Critical alerts: <b>${enabled ? 'ON' : 'OFF'}</b>\n\nUse /criticalalerts on or /criticalalerts off`
+      ));
+      return;
+    }
+
+    const normalized = String(value).toLowerCase();
+    if (!['on', 'off'].includes(normalized)) {
+      await sendTelegramAwait(chatId, pick(locale,
+        '❌ Uso: /criticalalerts on|off',
+        '❌ Usage: /criticalalerts on|off'
+      ));
+      return;
+    }
+
+    const enabled = await setCriticalAlertsEnabled(String(chatId), normalized === 'on');
+    await sendTelegramAwait(chatId, pick(locale,
+      `✅ Alertas críticas ${enabled ? 'activadas' : 'desactivadas'}.`,
+      `✅ Critical alerts ${enabled ? 'enabled' : 'disabled'}.`
+    ));
+  } catch (error) {
+    logger.error('[criticalalerts] error: ' + error.message);
+    recordError('telegram.processCriticalAlertsCommand', error.message);
+    const locale = await getLocale(chatId);
+    if (String(error.message || '').includes('Database migration required for critical alerts')) {
+      await sendTelegramAwait(chatId, pick(locale,
+        '❌ Falta la migración de base de datos para alertas críticas.\n\nSQL:\n<code>ALTER TABLE user_subscriptions ADD COLUMN IF NOT EXISTS critical_alerts_enabled BOOLEAN NOT NULL DEFAULT true;</code>',
+        '❌ The database migration for critical alerts is still missing.\n\nSQL:\n<code>ALTER TABLE user_subscriptions ADD COLUMN IF NOT EXISTS critical_alerts_enabled BOOLEAN NOT NULL DEFAULT true;</code>'
+      ));
+      return;
+    }
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
   }
 }

@@ -10,6 +10,7 @@ const DAYS_PER_SUBSCRIPTION = 30;
 const TRIAL_DAYS = 7;
 const DEFAULT_LANGUAGE = 'es';
 const BETA_FREE_MODE = true;
+const DEFAULT_CRITICAL_ALERTS_ENABLED = true;
 
 let supabase;
 
@@ -83,6 +84,7 @@ async function ensureSubscription(userId) {
     user_id: userId,
     status: 'trial',
     preferred_language: DEFAULT_LANGUAGE,
+    critical_alerts_enabled: DEFAULT_CRITICAL_ALERTS_ENABLED,
     pending_action: null,
     pending_payload: {},
     trial_started_at: new Date().toISOString(),
@@ -352,7 +354,7 @@ async function getUserPreferences(userId) {
   const db = getSupabase();
   let { data, error } = await db
     .from('user_subscriptions')
-    .select('preferred_language, pending_action, pending_payload, status, ntfy_enabled, ntfy_graph_enabled, notify_expiry')
+    .select('preferred_language, critical_alerts_enabled, pending_action, pending_payload, status, ntfy_enabled, ntfy_graph_enabled, notify_expiry')
     .eq('user_id', userId)
     .single();
 
@@ -368,6 +370,7 @@ async function getUserPreferences(userId) {
 
   return {
     preferredLanguage: data?.preferred_language || DEFAULT_LANGUAGE,
+    criticalAlertsEnabled: data?.critical_alerts_enabled !== undefined ? data.critical_alerts_enabled : DEFAULT_CRITICAL_ALERTS_ENABLED,
     pendingAction: data?.pending_action || null,
     pendingPayload: data?.pending_payload || {},
     status: data?.status || 'trial',
@@ -410,6 +413,25 @@ async function setPendingAction(userId, action, payload = {}) {
   if (error) throw error;
 }
 
+async function setCriticalAlertsEnabled(userId, enabled) {
+  const db = getSupabase();
+  await ensureSubscription(userId);
+  const { error } = await db
+    .from('user_subscriptions')
+    .update({ critical_alerts_enabled: !!enabled, updated_at: new Date().toISOString() })
+    .eq('user_id', userId);
+  if (error && isMissingColumnError(error)) {
+    throw new Error('Database migration required for critical alerts');
+  }
+  if (error) throw error;
+  return !!enabled;
+}
+
+async function getCriticalAlertsEnabled(userId) {
+  const prefs = await getUserPreferences(userId);
+  return prefs.criticalAlertsEnabled !== false;
+}
+
 async function clearPendingAction(userId) {
   const db = getSupabase();
   const { error } = await db
@@ -446,7 +468,7 @@ async function getBroadcastUsers() {
   const db = getSupabase();
   let { data, error } = await db
     .from('user_subscriptions')
-    .select('user_id, preferred_language, status, ntfy_enabled');
+    .select('user_id, preferred_language, status, ntfy_enabled, critical_alerts_enabled');
 
   if (error && isMissingColumnError(error)) {
     ({ data, error } = await db
@@ -463,6 +485,7 @@ async function getBroadcastUsers() {
       language: row.preferred_language || DEFAULT_LANGUAGE,
       status: row.status || 'trial',
       ntfyEnabled: row.ntfy_enabled || false,
+      criticalAlertsEnabled: row.critical_alerts_enabled !== undefined ? row.critical_alerts_enabled : DEFAULT_CRITICAL_ALERTS_ENABLED,
     }));
 }
 
@@ -484,6 +507,8 @@ module.exports = {
   setUserLanguage,
   setPendingAction,
   clearPendingAction,
+  setCriticalAlertsEnabled,
+  getCriticalAlertsEnabled,
   getFreeTierUsers,
   getBroadcastUsers,
   PAYMENT_ADDRESS,

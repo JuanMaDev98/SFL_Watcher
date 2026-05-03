@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS user_subscriptions (
   user_id TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'trial', -- 'trial', 'active', 'expired'
   preferred_language TEXT NOT NULL DEFAULT 'es',
+  critical_alerts_enabled BOOLEAN NOT NULL DEFAULT true,
   pending_action TEXT,
   pending_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
   ntfy_enabled BOOLEAN NOT NULL DEFAULT false,
@@ -62,6 +63,7 @@ CREATE INDEX IF NOT EXISTS idx_user_payments_tx_hash ON user_payments(tx_hash);
 
 ALTER TABLE user_subscriptions
 ADD COLUMN IF NOT EXISTS preferred_language TEXT NOT NULL DEFAULT 'es',
+ADD COLUMN IF NOT EXISTS critical_alerts_enabled BOOLEAN NOT NULL DEFAULT true,
 ADD COLUMN IF NOT EXISTS pending_action TEXT,
 ADD COLUMN IF NOT EXISTS pending_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
 ADD COLUMN IF NOT EXISTS ntfy_enabled BOOLEAN NOT NULL DEFAULT false,
