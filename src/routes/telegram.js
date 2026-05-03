@@ -16,6 +16,7 @@ const {
   setPendingAction,
   clearPendingAction,
   getFreeTierUsers,
+  getBroadcastUsers,
   getNtfySettings,
   updateNtfySettings,
   connectWallet,
@@ -259,18 +260,32 @@ async function handlePendingFlow(chatId, text) {
 
   if (prefs.pendingAction === 'sendpromo_en') {
     const payload = { ...(prefs.pendingPayload || {}), promo_en: text.trim() };
-    const recipients = await getFreeTierUsers();
+    const recipients = await getBroadcastUsers();
 
-    let sent = 0;
+    let sentTelegram = 0;
+    let sentNtfy = 0;
+    const ntfyRecipients = recipients.filter(user => user.ntfyEnabled);
+
     for (const user of recipients) {
       const outgoing = promoMessageForLanguage(user.language, payload.promo_es || text.trim(), payload.promo_en || text.trim());
-      const wrapped = `${promoMessageForLanguage(user.language, '📣 <b>Novedad de SFL Watcher</b>', '📣 <b>SFL Watcher Update</b>')}\\n\\n${escapeHtml(outgoing)}`;
-      const ok = await sendTelegramMessage(user.userId, wrapped);
-      if (ok) sent += 1;
+      const tgTitle = promoMessageForLanguage(user.language, '📣 <b>Novedad de SFL Watcher</b>', '📣 <b>SFL Watcher Update</b>');
+      const tgMessage = `${tgTitle}\\n\\n${escapeHtml(outgoing)}`;
+      const okTelegram = await sendTelegramMessage(user.userId, tgMessage);
+      if (okTelegram) sentTelegram += 1;
+
+      if (user.ntfyEnabled) {
+        const ntfyBody = `${promoMessageForLanguage(user.language, 'Novedad de SFL Watcher', 'SFL Watcher Update')}\\n\\n${outgoing}`;
+        const okNtfy = await sendNtfyNotification(getUserNtfyTopic(user.userId), ntfyBody, {
+          title: 'SFL Watcher Update',
+          tags: 'loudspeaker',
+          priority: 4,
+        });
+        if (okNtfy) sentNtfy += 1;
+      }
     }
 
     await clearPendingAction(String(chatId));
-    await sendTelegramAwait(chatId, pick(locale, `✅ Promo enviada a ${sent}/${recipients.length} usuarios free.`, `✅ Promo sent to ${sent}/${recipients.length} free users.`));
+    await sendTelegramAwait(chatId, pick(locale, `✅ Promo enviada por Telegram a ${sentTelegram}/${recipients.length} usuarios.\\n✅ Promo enviada por NTFY a ${sentNtfy}/${ntfyRecipients.length} usuarios con NTFY activo.`, `✅ Promo sent by Telegram to ${sentTelegram}/${recipients.length} users.\\n✅ Promo sent by NTFY to ${sentNtfy}/${ntfyRecipients.length} users with NTFY enabled.`));
     return true;
   }
 

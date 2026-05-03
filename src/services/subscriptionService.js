@@ -442,6 +442,30 @@ async function getFreeTierUsers() {
   }));
 }
 
+async function getBroadcastUsers() {
+  const db = getSupabase();
+  let { data, error } = await db
+    .from('user_subscriptions')
+    .select('user_id, preferred_language, status, ntfy_enabled');
+
+  if (error && isMissingColumnError(error)) {
+    ({ data, error } = await db
+      .from('user_subscriptions')
+      .select('user_id, status'));
+  }
+
+  if (error) throw error;
+
+  return (data || [])
+    .filter(row => row?.user_id)
+    .map(row => ({
+      userId: row.user_id,
+      language: row.preferred_language || DEFAULT_LANGUAGE,
+      status: row.status || 'trial',
+      ntfyEnabled: row.ntfy_enabled || false,
+    }));
+}
+
 module.exports = {
   ensureSubscription,
   getSubscriptionStatus,
@@ -461,6 +485,7 @@ module.exports = {
   setPendingAction,
   clearPendingAction,
   getFreeTierUsers,
+  getBroadcastUsers,
   PAYMENT_ADDRESS,
   DAYS_PER_SUBSCRIPTION,
   SUBSCRIPTION_USD,
