@@ -4,6 +4,7 @@ const { generateChartDataUrl, generateChartBuffer } = require('./chartService');
 const { sendNtfyNotification, formatNtfyAlert, formatNtfyTargetAlert, getUserNtfyTopic } = require('./ntfyService');
 const { getUserLanguage } = require('./subscriptionService');
 const { getResourceHistory } = require('./priceFetcher');
+const { shouldThrottleAlert, recordError } = require('./runtimeStatsService');
 const logger = require('../utils/logger');
 
 /**
@@ -216,6 +217,12 @@ async function checkResourceAlerts(resource, alerts) {
           continue;
         }
 
+        const runtimeThrottleKey = `${alert.user_id}:${resource}:${alertType}:${targetPrice}`;
+        if (shouldThrottleAlert(runtimeThrottleKey)) {
+          logger.info(`[AlertEngine] ${resource}: runtime throttle suppressed duplicate target alert`);
+          continue;
+        }
+
         const language = await getUserLanguage(String(alert.user_id));
         await sendTelegramTargetAlert(alert.user_id, resource, targetDirection || (isAboveTarget ? 'above' : 'below'), targetPrice, stats, language);
 
@@ -248,6 +255,12 @@ async function checkResourceAlerts(resource, alerts) {
           continue;
         }
 
+        const runtimeThrottleKey = `${alert.user_id}:${resource}:${isRiseAlert ? 'rise' : 'fall'}:${thresholdHigh}:${thresholdLow}`;
+        if (shouldThrottleAlert(runtimeThrottleKey)) {
+          logger.info(`[AlertEngine] ${resource}: runtime throttle suppressed duplicate percent alert`);
+          continue;
+        }
+
         const language = await getUserLanguage(String(alert.user_id));
         await sendTelegramAlert(alert.user_id, resource, currentPct, stats, thresholdHigh, thresholdLow, language);
 
@@ -270,6 +283,7 @@ async function checkResourceAlerts(resource, alerts) {
 
   } catch (error) {
     logger.error(`[AlertEngine] Error checking ${resource}:`, error.message);
+    recordError('alertEngine.checkResourceAlerts', error.message);
   }
 }
 
@@ -298,6 +312,7 @@ async function sendTelegramAlert(userId, resource, currentPct, stats, thresholdH
     }
   } catch (error) {
     logger.error('[AlertEngine] sendTelegramAlert error:', error.message);
+    recordError('alertEngine.sendTelegramAlert', error.message);
     const msg = formatAlertMessage(resource, currentPct, stats, thresholdHigh, thresholdLow, language);
     await sendTelegramMessage(userId, msg);
   }
@@ -320,6 +335,7 @@ async function sendTelegramTargetAlert(userId, resource, direction, targetPrice,
     }
   } catch (error) {
     logger.error('[AlertEngine] sendTelegramTargetAlert error:', error.message);
+    recordError('alertEngine.sendTelegramTargetAlert', error.message);
     await sendTelegramMessage(userId, formatTargetAlertMessage(resource, direction, targetPrice, stats, language));
   }
 }
@@ -355,6 +371,7 @@ async function sendNtfyAlertNotification(userId, resource, currentPct, stats, th
   } catch (error) {
     logger.error(`[AlertEngine] ❌ sendNtfyAlertNotification error: ${error.message}`);
     logger.error(`[AlertEngine] Error stack:`, error.stack);
+    recordError('alertEngine.sendNtfyAlertNotification', error.message);
   }
 }
 
@@ -368,6 +385,7 @@ async function sendNtfyTargetAlertNotification(userId, resource, direction, targ
     });
   } catch (error) {
     logger.error(`[AlertEngine] sendNtfyTargetAlertNotification error: ${error.message}`);
+    recordError('alertEngine.sendNtfyTargetAlertNotification', error.message);
     return false;
   }
 }

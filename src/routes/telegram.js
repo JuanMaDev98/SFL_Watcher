@@ -37,6 +37,12 @@ const {
   formatTrimmed,
   formatSignedPercent,
 } = require('../services/formatters');
+const {
+  canSendPromo,
+  markPromoSent,
+  recordError,
+  getRuntimeHealthSnapshot,
+} = require('../services/runtimeStatsService');
 
 const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
 const OWNER_TELEGRAM_ID = '1166287745';
@@ -58,18 +64,86 @@ function sendTelegram(chatId, text) {
 /**
  * Awaited Telegram sender (waits for response before Vercel cuts off)
  */
-async function sendTelegramAwait(chatId, text) {
+async function sendTelegramAwait(chatId, text, extra = {}) {
   try {
     const resp = await fetch(`${TELEGRAM_API}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' })
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', ...extra })
     });
     return resp.ok;
   } catch (e) {
     logger.error('Telegram error: ' + e.message);
     return false;
   }
+}
+
+async function answerCallbackQuery(callbackQueryId, text = '') {
+  try {
+    const resp = await fetch(`${TELEGRAM_API}/answerCallbackQuery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ callback_query_id: callbackQueryId, text, show_alert: false })
+    });
+    return resp.ok;
+  } catch (e) {
+    logger.error('Telegram callback answer error: ' + e.message);
+    return false;
+  }
+}
+
+async function editTelegramMessage(chatId, messageId, text, extra = {}) {
+  try {
+    const resp = await fetch(`${TELEGRAM_API}/editMessageText`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId,
+        text,
+        parse_mode: 'HTML',
+        ...extra,
+      })
+    });
+    return resp.ok;
+  } catch (e) {
+    logger.error('Telegram editMessageText error: ' + e.message);
+    return false;
+  }
+}
+
+function buildLanguageKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: '🇪🇸 Español', callback_data: 'lang:es' },
+        { text: '🇺🇸 English', callback_data: 'lang:en' },
+      ]
+    ]
+  };
+}
+
+function buildQuickAlertKeyboard(resource) {
+  return {
+    inline_keyboard: [
+      [
+        { text: '🔔 +10 / -10', callback_data: `alertquick:${resource}:10:10` },
+        { text: '🔔 +20 / -15', callback_data: `alertquick:${resource}:20:15` },
+      ]
+    ]
+  };
+}
+
+function buildDeleteAlertKeyboard(alerts = []) {
+  const rows = alerts.slice(0, 20).map(alert => ([
+    { text: `🗑️ ${String(alert.resource).toUpperCase()}`, callback_data: `alertdelete:${alert.resource}` }
+  ]));
+  return rows.length ? { inline_keyboard: rows } : null;
+}
+
+function formatDurationMinutes(ms) {
+  const minutes = Math.ceil(ms / 60000);
+  return `${minutes} min`;
 }
 
 /**
@@ -260,6 +334,13 @@ async function handlePendingFlow(chatId, text) {
 
   if (prefs.pendingAction === 'sendpromo_en') {
     const payload = { ...(prefs.pendingPayload || {}), promo_en: text.trim() };
+    const promoGuard = canSendPromo(chatId);
+    if (!promoGuard.allowed) {
+      await clearPendingAction(String(chatId));
+      await sendTelegramAwait(chatId, pick(locale, `⏳ Espera ${formatDurationMinutes(promoGuard.remainingMs)} antes de enviar otra promo.`, `⏳ Wait ${formatDurationMinutes(promoGuard.remainingMs)} before sending another promo.`));
+      return true;
+    }
+
     const recipients = await getBroadcastUsers();
 
     let sentTelegram = 0;
@@ -284,6 +365,13 @@ async function handlePendingFlow(chatId, text) {
       }
     }
 
+    markPromoSent(chatId, {
+      telegramRecipients: recipients.length,
+      telegramSent: sentTelegram,
+      ntfyRecipients: ntfyRecipients.length,
+      ntfySent: sentNtfy,
+    });
+
     await clearPendingAction(String(chatId));
     await sendTelegramAwait(chatId, pick(locale, `✅ Promo enviada por Telegram a ${sentTelegram}/${recipients.length} usuarios.\n✅ Promo enviada por NTFY a ${sentNtfy}/${ntfyRecipients.length} usuarios con NTFY activo.`, `✅ Promo sent by Telegram to ${sentTelegram}/${recipients.length} users.\n✅ Promo sent by NTFY to ${sentNtfy}/${ntfyRecipients.length} users with NTFY enabled.`));
     return true;
@@ -292,12 +380,57 @@ async function handlePendingFlow(chatId, text) {
   return false;
 }
 
+async function processCallbackQuery(callbackQuery) {
+  const callbackId = callbackQuery.id;
+  const chatId = callbackQuery.message?.chat?.id;
+  const messageId = callbackQuery.message?.message_id;
+  const data = String(callbackQuery.data || '');
+
+  if (!chatId || !data) {
+    await answerCallbackQuery(callbackId, 'Invalid action');
+    return;
+  }
+
+  const locale = await getLocale(chatId);
+
+  if (data.startsWith('lang:')) {
+    const language = data.split(':')[1] || 'es';
+    await setUserLanguage(String(chatId), language);
+    await answerCallbackQuery(callbackId, pick(language, 'Idioma actualizado', 'Language updated'));
+    await editTelegramMessage(chatId, messageId, pick(language, '🌐 <b>Idioma actualizado</b>\n\nTu idioma ahora es <b>Español</b>.', '🌐 <b>Language updated</b>\n\nYour language is now <b>English</b>.'));
+    return;
+  }
+
+  if (data.startsWith('alertquick:')) {
+    const [, resource, riseRaw, fallRaw] = data.split(':');
+    await processAlertConfig(chatId, `${resource} ${riseRaw} ${fallRaw}`, false);
+    await answerCallbackQuery(callbackId, pick(locale, 'Alerta rápida creada', 'Quick alert created'));
+    return;
+  }
+
+  if (data.startsWith('alertdelete:')) {
+    const [, resource] = data.split(':');
+    await processRemoveAlert(chatId, resource);
+    await answerCallbackQuery(callbackId, pick(locale, 'Alerta eliminada', 'Alert deleted'));
+    return;
+  }
+
+  await answerCallbackQuery(callbackId, pick(locale, 'Acción no reconocida', 'Unknown action'));
+}
+
 
 
 // WEBHOOK HANDLER
 // ============================================
 router.post('/webhook', async (req, res) => {
   try {
+    const { callback_query: callbackQuery } = req.body || {};
+    if (callbackQuery) {
+      await processCallbackQuery(callbackQuery);
+      res.json({ ok: true });
+      return;
+    }
+
     const { message } = req.body || {};
     if (!message || !message.text) {
       res.json({ ok: true });
@@ -449,6 +582,9 @@ router.post('/webhook', async (req, res) => {
   else if (command === '/sendpromo') {
     await processSendPromo(chatId);
   }
+  else if (command === '/healthpanel' || command === '/panel') {
+    await processHealthPanel(chatId);
+  }
   else if (command === '/debug') {
     const blocked = await checkSubscription(chatId);
     if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
@@ -513,6 +649,7 @@ router.post('/webhook', async (req, res) => {
     res.json({ ok: true });
   } catch (error) {
     logger.error('[webhook] fatal error: ' + error.message, { stack: error.stack });
+    recordError('telegram.webhook', error.message);
     try {
       const chatId = req?.body?.message?.chat?.id;
       if (chatId) {
@@ -539,9 +676,12 @@ async function processPriceSimple(chatId, resource) {
       return;
     }
 
-    await sendTelegramAwait(chatId, formatGraphCaption(resource, stats, locale));
+    await sendTelegramAwait(chatId, formatGraphCaption(resource, stats, locale), {
+      reply_markup: buildQuickAlertKeyboard(resource),
+    });
   } catch (error) {
     logger.error('[price] error: ' + error.message);
+    recordError('telegram.processPriceSimple', error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
   }
 }
@@ -662,7 +802,11 @@ async function processAlertConfig(chatId, input, isListMode) {
         return `• <b>${a.resource}</b>: ▲+${Number(a.threshold_high)}% | ▼${Number(a.threshold_low)}%`;
       });
 
-      await sendTelegramAwait(chatId, `${pick(locale, '🔔 <b>Tus alertas</b>', '🔔 <b>Your alerts</b>')}\n\n${lines.join('\n')}\n\n${pick(locale, 'Agregar porcentaje: /alert &lt;resource&gt; &lt;sube%&gt; &lt;baja%&gt;\nAgregar objetivo: /pricealert &lt;resource&gt; &lt;above|below&gt; &lt;precio&gt;\nEliminar: /removealert &lt;resource&gt;', 'Add percentage: /alert &lt;resource&gt; &lt;rise%&gt; &lt;fall%&gt;\nAdd target: /pricealert &lt;resource&gt; &lt;above|below&gt; &lt;price&gt;\nRemove: /removealert &lt;resource&gt;' )}`);
+      await sendTelegramAwait(chatId, `${pick(locale, '🔔 <b>Tus alertas</b>', '🔔 <b>Your alerts</b>')}\n\n${lines.join('\n')}\n\n${pick(locale, 'Agregar porcentaje: /alert &lt;resource&gt; &lt;sube%&gt; &lt;baja%&gt;\nAgregar objetivo: /pricealert &lt;resource&gt; &lt;above|below&gt; &lt;precio&gt;\nEliminar: /removealert &lt;resource&gt;', 'Add percentage: /alert &lt;resource&gt; &lt;rise%&gt; &lt;fall%&gt;\nAdd target: /pricealert &lt;resource&gt; &lt;above|below&gt; &lt;price&gt;\nRemove: /removealert &lt;resource&gt;' )}`,
+        {
+          reply_markup: buildDeleteAlertKeyboard(alerts),
+        }
+      );
       return;
     }
 
@@ -928,7 +1072,9 @@ async function processLanguage(chatId, languageInput) {
   try {
     const current = await getLocale(chatId);
     if (!languageInput) {
-      await sendTelegramAwait(chatId, pick(current, `🌐 Idioma actual: <b>${current.toUpperCase()}</b>\nUsa /language es o /language en`, `🌐 Current language: <b>${current.toUpperCase()}</b>\nUse /language es or /language en`));
+      await sendTelegramAwait(chatId, pick(current, `🌐 Idioma actual: <b>${current.toUpperCase()}</b>\nElige abajo el idioma que quieres usar.`, `🌐 Current language: <b>${current.toUpperCase()}</b>\nChoose below the language you want to use.`), {
+        reply_markup: buildLanguageKeyboard(),
+      });
       return;
     }
     const language = await setUserLanguage(String(chatId), languageInput);
@@ -946,8 +1092,47 @@ async function processSendPromo(chatId) {
     return;
   }
 
+  const promoGuard = canSendPromo(chatId);
+  if (!promoGuard.allowed) {
+    await sendTelegramAwait(chatId, pick(locale, `⏳ Espera ${formatDurationMinutes(promoGuard.remainingMs)} antes de enviar otra promo.`, `⏳ Wait ${formatDurationMinutes(promoGuard.remainingMs)} before sending another promo.`));
+    return;
+  }
+
   await setPendingAction(String(chatId), 'sendpromo_es', {});
   await sendTelegramAwait(chatId, pick(locale, '📣 Manda la promo en español.', '📣 Send the promo in Spanish.'));
+}
+
+async function processHealthPanel(chatId) {
+  const locale = await getLocale(chatId);
+  if (!isAdmin(chatId)) {
+    await sendTelegramAwait(chatId, pick(locale, '❌ Este comando es solo para admin.', '❌ This command is admin only.'));
+    return;
+  }
+
+  try {
+    const [usersResult, alertsResult] = await Promise.all([
+      supabase.from('user_subscriptions').select('user_id', { count: 'exact', head: true }),
+      supabase.from('user_alerts').select('id', { count: 'exact', head: true }).eq('enabled', true),
+    ]);
+
+    const usersActive = usersResult.count || 0;
+    const alertsActive = alertsResult.count || 0;
+    const snapshot = getRuntimeHealthSnapshot({ adminId: String(chatId) });
+    const cooldownText = snapshot.promoCooldownRemainingMs > 0
+      ? formatDurationMinutes(snapshot.promoCooldownRemainingMs)
+      : pick(locale, 'lista', 'ready');
+
+    const message = pick(locale,
+      `🩺 <b>Panel de salud</b>\n\n👥 Usuarios activos: <b>${usersActive}</b>\n🔔 Alertas activas: <b>${alertsActive}</b>\n📣 Promos enviadas (24h): <b>${snapshot.promosSent24h}</b>\n❌ Errores últimas 24h: <b>${snapshot.errors24h}</b>\n⏳ Cooldown promo: <b>${cooldownText}</b>`,
+      `🩺 <b>Health panel</b>\n\n👥 Active users: <b>${usersActive}</b>\n🔔 Active alerts: <b>${alertsActive}</b>\n📣 Promos sent (24h): <b>${snapshot.promosSent24h}</b>\n❌ Errors last 24h: <b>${snapshot.errors24h}</b>\n⏳ Promo cooldown: <b>${cooldownText}</b>`
+    );
+
+    await sendTelegramAwait(chatId, message);
+  } catch (error) {
+    logger.error('[healthpanel] error: ' + error.message);
+    recordError('telegram.processHealthPanel', error.message);
+    await sendTelegramAwait(chatId, `Error: ${error.message}`);
+  }
 }
 
 // ============================================
