@@ -9,6 +9,7 @@ const SUBSCRIPTION_USD = 1; // $1 USD = 30 days
 const DAYS_PER_SUBSCRIPTION = 30;
 const TRIAL_DAYS = 7;
 const DEFAULT_LANGUAGE = 'es';
+const BETA_FREE_MODE = true;
 
 let supabase;
 
@@ -170,6 +171,17 @@ async function getSubscriptionStatus(userId) {
  * Format subscription for Telegram response
  */
 function formatSubscription(sub) {
+  if (BETA_FREE_MODE) {
+    return {
+      status: 'trial',
+      days_remaining: 99999,
+      trial_started_at: sub.trial_started_at,
+      trial_ends_at: null,
+      subscription_ends_at: null,
+      beta_free_mode: true,
+    };
+  }
+
   const now = new Date();
   let status = sub.status;
   let daysRemaining = 0;
@@ -451,5 +463,6 @@ module.exports = {
   getFreeTierUsers,
   PAYMENT_ADDRESS,
   DAYS_PER_SUBSCRIPTION,
-  SUBSCRIPTION_USD
+  SUBSCRIPTION_USD,
+  BETA_FREE_MODE,
 };

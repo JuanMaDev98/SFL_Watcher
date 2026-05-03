@@ -25,6 +25,7 @@ const {
   isTxHashUsed,
   verifyWalletPayment,
   PAYMENT_ADDRESS,
+  BETA_FREE_MODE,
 } = require('../services/subscriptionService');
 const {
   pick,
@@ -37,7 +38,7 @@ const {
 } = require('../services/formatters');
 
 const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
-const ADMIN_TELEGRAM_IDS = new Set(String(process.env.ADMIN_TELEGRAM_IDS || '1166287745').split(',').map(v => v.trim()).filter(Boolean));
+const OWNER_TELEGRAM_ID = '1166287745';
 const ALL_RESOURCES = ['apple','artichoke','banana','barley','beetroot','blueberry','broccoli','bumpkin emblem','cabbage','carrot','cauliflower','celestine','chewed bone','corn','crimstone','dewberry','duskberry','egg','eggplant','feather','frost pebble','goblin emblem','gold','grape','heart leaf','honey','iron','kale','leather','lemon','lunara','merino wool','milk','moonfur','nightshade emblem','obsidian','olive','onion','orange','parsnip','pepper','potato','pumpkin','radish','rhubarb','ribbon','rice','ruffroot','soybean','stone','sunflorian emblem','sunflower','tomato','turnip','wheat','wild grass','wood','wool','yam','zucchini'];
 
 /**
@@ -205,7 +206,7 @@ async function getLocale(chatId) {
 }
 
 function isAdmin(chatId) {
-  return ADMIN_TELEGRAM_IDS.has(String(chatId));
+  return String(chatId) === OWNER_TELEGRAM_ID;
 }
 
 function promoMessageForLanguage(language, esText, enText) {
@@ -214,6 +215,7 @@ function promoMessageForLanguage(language, esText, enText) {
 
 async function checkSubscription(chatId) {
   await ensureSubscription(chatId.toString());
+  if (BETA_FREE_MODE) return null;
   const locale = await getLocale(chatId);
   const sub = await getSubscriptionStatus(chatId.toString());
 
@@ -310,31 +312,15 @@ router.post('/webhook', async (req, res) => {
   if (command === '/start') {
     await sendTelegramAwait(chatId,
       pick(locale,
-        '🦉 <b>SFL Watcher</b>\n\n📊 <b>Precios y gráficas</b>\n/price &lt;resource&gt; • /priceall • /graph &lt;resource&gt; • /list\n\n🔔 <b>Alertas</b>\n/alerts • /alert &lt;res&gt; &lt;sube%&gt; &lt;baja%&gt; • /pricealert &lt;res&gt; &lt;above|below&gt; &lt;precio&gt;\n\n🌐 <b>Idioma</b>\n/language es • /language en\n\n💳 <b>Suscripción</b>\n/connectwallet • /subscribe • /status • /pay\n\nUsa /help para ver todo.',
-        '🦉 <b>SFL Watcher</b>\n\n📊 <b>Prices and charts</b>\n/price &lt;resource&gt; • /priceall • /graph &lt;resource&gt; • /list\n\n🔔 <b>Alerts</b>\n/alerts • /alert &lt;res&gt; &lt;rise%&gt; &lt;fall%&gt; • /pricealert &lt;res&gt; &lt;above|below&gt; &lt;price&gt;\n\n🌐 <b>Language</b>\n/language es • /language en\n\n💳 <b>Subscription</b>\n/connectwallet • /subscribe • /status • /pay\n\nUse /help to see everything.'
+        '🦉 <b>SFL Watcher</b>\n\n📊 <b>Precios y gráficas</b>\n/price &lt;resource&gt; • /priceall • /graph &lt;resource&gt; • /list\n\n🔔 <b>Alertas</b>\n/alerts • /alert &lt;res&gt; &lt;sube%&gt; &lt;baja%&gt; • /pricealert &lt;res&gt; &lt;above|below&gt; &lt;precio&gt;\n\n🌐 <b>Idioma</b>\n/language es • /language en\n\nUsa /help para ver todo.',
+        '🦉 <b>SFL Watcher</b>\n\n📊 <b>Prices and charts</b>\n/price &lt;resource&gt; • /priceall • /graph &lt;resource&gt; • /list\n\n🔔 <b>Alerts</b>\n/alerts • /alert &lt;res&gt; &lt;rise%&gt; &lt;fall%&gt; • /pricealert &lt;res&gt; &lt;above|below&gt; &lt;price&gt;\n\n🌐 <b>Language</b>\n/language es • /language en\n\nUse /help to see everything.'
       )
     );
   }
   else if (command === '/help') {
-    const adminLine = isAdmin(chatId)
-      ? pick(locale, '\n/sendpromo - Mandar promo a usuarios free', '\n/sendpromo - Send promo to free users')
-      : '';
     await sendTelegramAwait(chatId,
       pick(locale,
         '📊 <b>SFL Watcher - Ayuda</b>\n\n' +
-        '━━━━━━━━━━━━━━━━━━━━\n' +
-        '💳 <b>CÓMO SUSCRIBIRTE</b>\n' +
-        '━━━━━━━━━━━━━━━━━━━━\n\n' +
-        '1️⃣ /connectwallet &lt;tu_wallet&gt;\n' +
-        '   Vincula tu wallet a tu cuenta\n\n' +
-        '2️⃣ /subscribe\n' +
-        '   Obtén la dirección de pago y el monto en FLOWER\n\n' +
-        '3️⃣ Envía FLOWER desde TU wallet a la dirección mostrada\n\n' +
-        '4️⃣ /pay\n' +
-        '   El bot verifica el pago y activa 30 días\n\n' +
-        '💰 Costo: <b>$1 USD / 30 días</b>\n' +
-        '⚠️ DEBES enviar desde tu wallet vinculada\n\n' +
-        '━━━━━━━━━━━━━━━━━━━━\n' +
         '📈 <b>COMANDOS DE PRECIO</b>\n' +
         '━━━━━━━━━━━━━━━━━━━━\n\n' +
         '/price &lt;resource&gt; - Precio de un recurso (ej. /price wood)\n' +
@@ -356,15 +342,6 @@ router.post('/webhook', async (req, res) => {
         '/alertall 20 15 → todos los recursos a +20% o -15%\n' +
         '/alertall 20 15 keep → igual, manteniendo alertas existentes\n' +
         '/pricealert milk below 0.01 → alerta si milk baja de 0.01\n\n' +
-        '━━━━━━━━━━━━━━━━━━━━\n' +
-        '👛 <b>COMANDOS DE WALLET</b>\n' +
-        '━━━━━━━━━━━━━━━━━━━━\n\n' +
-        '/connectwallet &lt;address&gt; - Vincula tu wallet\n' +
-        '/wallet - Ver tu wallet vinculada\n' +
-        '/status - Días restantes y estado de suscripción\n' +
-        '/subscribe - Obtener info de pago\n' +
-        '/pay - Verificar pago en FLOWER\n\n' +
-        '━━━━━━━━━━━━━━━━━━━━\n' +
         '🌐 <b>IDIOMA</b>\n' +
         '━━━━━━━━━━━━━━━━━━━━\n\n' +
         '/language es - Cambiar a español\n' +
@@ -376,21 +353,8 @@ router.post('/webhook', async (req, res) => {
         '/ntfytest - Enviar notificación de prueba\n' +
         '/ntfygraph on/off - Activar o desactivar gráficas en NTFY\n' +
         '/ntfystatus - Ver estado de tu configuración NTFY\n\n' +
-        '📋 <b>Nota:</b> las notificaciones NTFY son públicas. NO compartas tu topic.' + adminLine,
+        '📋 <b>Nota:</b> las notificaciones NTFY son públicas. NO compartas tu topic.',
         '📊 <b>SFL Watcher - Help</b>\n\n' +
-        '━━━━━━━━━━━━━━━━━━━━\n' +
-        '💳 <b>HOW TO SUBSCRIBE</b>\n' +
-        '━━━━━━━━━━━━━━━━━━━━\n\n' +
-        '1️⃣ /connectwallet &lt;your_wallet_address&gt;\n' +
-        '   Link your wallet to your account\n\n' +
-        '2️⃣ /subscribe\n' +
-        '   Get payment address &amp; amount in FLOWER\n\n' +
-        '3️⃣ Send FLOWER from YOUR wallet to the address shown\n\n' +
-        '4️⃣ /pay\n' +
-        '   Bot verifies payment and activates 30 days\n\n' +
-        '💰 Cost: <b>$1 USD / 30 days</b>\n' +
-        '⚠️ You MUST send from your linked wallet\n\n' +
-        '━━━━━━━━━━━━━━━━━━━━\n' +
         '📈 <b>PRICE COMMANDS</b>\n' +
         '━━━━━━━━━━━━━━━━━━━━\n\n' +
         '/price &lt;resource&gt; - Price info (e.g. /price wood)\n' +
@@ -412,15 +376,6 @@ router.post('/webhook', async (req, res) => {
         '/alertall 20 15 → all resources at +20% or -15%\n' +
         '/alertall 20 15 keep → same, keeping existing alerts\n' +
         '/pricealert milk below 0.01 → alert if milk drops below 0.01\n\n' +
-        '━━━━━━━━━━━━━━━━━━━━\n' +
-        '👛 <b>WALLET COMMANDS</b>\n' +
-        '━━━━━━━━━━━━━━━━━━━━\n\n' +
-        '/connectwallet &lt;address&gt; - Link your wallet\n' +
-        '/wallet - See your linked wallet\n' +
-        '/status - Days remaining and subscription status\n' +
-        '/subscribe - Get payment info\n' +
-        '/pay - Verify FLOWER payment\n\n' +
-        '━━━━━━━━━━━━━━━━━━━━\n' +
         '🌐 <b>LANGUAGE</b>\n' +
         '━━━━━━━━━━━━━━━━━━━━\n\n' +
         '/language es - Switch to Spanish\n' +
@@ -432,7 +387,7 @@ router.post('/webhook', async (req, res) => {
         '/ntfytest - Send test notification to phone\n' +
         '/ntfygraph on/off - Enable/disable graph images in NTFY\n' +
         '/ntfystatus - Check your NTFY settings\n\n' +
-        '📋 <b>Note:</b> NTFY notifications are public. DO NOT share your topic.' + adminLine
+        '📋 <b>Note:</b> NTFY notifications are public. DO NOT share your topic.'
       )
     );
   }
@@ -507,17 +462,9 @@ router.post('/webhook', async (req, res) => {
     if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
     await processRemoveAllAlerts(chatId);
   }
-  else if (command === '/connectwallet') {
-    const wallet = parts.length > 1 ? parts[1].trim() : null;
-    await processConnectWallet(chatId, wallet);
-  }
-  else if (command === '/wallet') {
-    await processShowWallet(chatId);
-  }
-  else if (command === '/subscribe') {
-    const blocked = await checkSubscription(chatId);
-    if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
-    await processSubscribe(chatId);
+  // Beta gratis: comandos de suscripción ocultos temporalmente.
+  else if (command === '/connectwallet' || command === '/wallet' || command === '/subscribe') {
+    await sendTelegramAwait(chatId, pick(locale, '🧪 La beta es gratis por ahora. Este comando está oculto temporalmente.', '🧪 The beta is free for now. This command is temporarily hidden.'));
   }
   else if (command === '/ntfy') {
     const blocked = await checkSubscription(chatId);
@@ -540,15 +487,9 @@ router.post('/webhook', async (req, res) => {
     if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
     await processNtfyStatus(chatId);
   }
-  else if (command === '/status') {
-    const blocked = await checkSubscription(chatId);
-    if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
-    await processStatus(chatId);
-  }
-  else if (command === '/pay') {
-    const blocked = await checkSubscription(chatId);
-    if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
-    await processPay(chatId);
+  // Beta gratis: status/pay desactivados temporalmente.
+  else if (command === '/status' || command === '/pay') {
+    await sendTelegramAwait(chatId, pick(locale, '🧪 La beta es gratis por ahora. Este comando está desactivado temporalmente.', '🧪 The beta is free for now. This command is temporarily disabled.'));
   }
   else {
     await sendTelegramAwait(chatId, '❌ Unknown command.\nUse /help to see commands.');
