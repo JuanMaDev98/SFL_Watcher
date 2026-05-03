@@ -321,8 +321,118 @@ router.post('/webhook', async (req, res) => {
       : '';
     await sendTelegramAwait(chatId,
       pick(locale,
-        '📊 <b>SFL Watcher - Ayuda</b>\n\n<b>Precios</b>\n/price &lt;resource&gt;\n/priceall\n/graph &lt;resource&gt;\n/list\n\n<b>Alertas por porcentaje</b>\n/alerts\n/alert &lt;resource&gt; &lt;sube%&gt; &lt;baja%&gt;\n/alertall &lt;sube%&gt; &lt;baja%&gt; [keep]\n/removealert &lt;resource&gt;\n/removeallalerts\n\n<b>Alertas por precio</b>\n/pricealert &lt;resource&gt; &lt;above|below&gt; &lt;precio&gt;\nEjemplo: /pricealert milk below 0.01\n\n<b>Idioma</b>\n/language es\n/language en\n\n<b>Wallet y pago</b>\n/connectwallet &lt;address&gt;\n/wallet\n/status\n/subscribe\n/pay\n\n<b>NTFY</b>\n/ntfy\n/ntfytest\n/ntfygraph on|off\n/ntfystatus' + adminLine,
-        '📊 <b>SFL Watcher - Help</b>\n\n<b>Prices</b>\n/price &lt;resource&gt;\n/priceall\n/graph &lt;resource&gt;\n/list\n\n<b>Percentage alerts</b>\n/alerts\n/alert &lt;resource&gt; &lt;rise%&gt; &lt;fall%&gt;\n/alertall &lt;rise%&gt; &lt;fall%&gt; [keep]\n/removealert &lt;resource&gt;\n/removeallalerts\n\n<b>Price target alerts</b>\n/pricealert &lt;resource&gt; &lt;above|below&gt; &lt;price&gt;\nExample: /pricealert milk below 0.01\n\n<b>Language</b>\n/language es\n/language en\n\n<b>Wallet and payment</b>\n/connectwallet &lt;address&gt;\n/wallet\n/status\n/subscribe\n/pay\n\n<b>NTFY</b>\n/ntfy\n/ntfytest\n/ntfygraph on|off\n/ntfystatus' + adminLine
+        '📊 <b>SFL Watcher - Ayuda</b>\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n' +
+        '💳 <b>CÓMO SUSCRIBIRTE</b>\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n\n' +
+        '1️⃣ /connectwallet &lt;tu_wallet&gt;\n' +
+        '   Vincula tu wallet a tu cuenta\n\n' +
+        '2️⃣ /subscribe\n' +
+        '   Obtén la dirección de pago y el monto en FLOWER\n\n' +
+        '3️⃣ Envía FLOWER desde TU wallet a la dirección mostrada\n\n' +
+        '4️⃣ /pay\n' +
+        '   El bot verifica el pago y activa 30 días\n\n' +
+        '💰 Costo: <b>$1 USD / 30 días</b>\n' +
+        '⚠️ DEBES enviar desde tu wallet vinculada\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n' +
+        '📈 <b>COMANDOS DE PRECIO</b>\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n\n' +
+        '/price &lt;resource&gt; - Precio de un recurso (ej. /price wood)\n' +
+        '/priceall - Precios de los 60 recursos\n' +
+        '/graph &lt;resource&gt; - Gráfica del recurso (ej. /graph stone)\n' +
+        '/list - Lista de los 60 recursos\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n' +
+        '🔔 <b>COMANDOS DE ALERTAS</b>\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n\n' +
+        '/alerts - Ver todas tus alertas activas\n' +
+        '/alert &lt;res&gt; &lt;high%&gt; &lt;low%&gt; - Crea alerta porcentual para un recurso\n' +
+        '/alertall &lt;high%&gt; &lt;low%&gt; - Crea alertas para todos los recursos\n' +
+        '/alertall &lt;high%&gt; &lt;low%&gt; keep - Igual, pero conserva las existentes\n' +
+        '/pricealert &lt;res&gt; &lt;above|below&gt; &lt;price&gt; - Alerta por precio objetivo\n' +
+        '/removealert &lt;resource&gt; - Elimina la alerta de un recurso\n' +
+        '/removeallalerts - Elimina todas las alertas\n\n' +
+        '<b>Ejemplos:</b>\n' +
+        '/alert yam 10 15 → yam a +10% o -15% vs promedio\n' +
+        '/alertall 20 15 → todos los recursos a +20% o -15%\n' +
+        '/alertall 20 15 keep → igual, manteniendo alertas existentes\n' +
+        '/pricealert milk below 0.01 → alerta si milk baja de 0.01\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n' +
+        '👛 <b>COMANDOS DE WALLET</b>\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n\n' +
+        '/connectwallet &lt;address&gt; - Vincula tu wallet\n' +
+        '/wallet - Ver tu wallet vinculada\n' +
+        '/status - Días restantes y estado de suscripción\n' +
+        '/subscribe - Obtener info de pago\n' +
+        '/pay - Verificar pago en FLOWER\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n' +
+        '🌐 <b>IDIOMA</b>\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n\n' +
+        '/language es - Cambiar a español\n' +
+        '/language en - Cambiar a inglés\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n' +
+        '📱 <b>NOTIFICACIONES NTFY</b>\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n\n' +
+        '/ntfy - Configurar NTFY para el teléfono\n' +
+        '/ntfytest - Enviar notificación de prueba\n' +
+        '/ntfygraph on/off - Activar o desactivar gráficas en NTFY\n' +
+        '/ntfystatus - Ver estado de tu configuración NTFY\n\n' +
+        '📋 <b>Nota:</b> las notificaciones NTFY son públicas. NO compartas tu topic.' + adminLine,
+        '📊 <b>SFL Watcher - Help</b>\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n' +
+        '💳 <b>HOW TO SUBSCRIBE</b>\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n\n' +
+        '1️⃣ /connectwallet &lt;your_wallet_address&gt;\n' +
+        '   Link your wallet to your account\n\n' +
+        '2️⃣ /subscribe\n' +
+        '   Get payment address &amp; amount in FLOWER\n\n' +
+        '3️⃣ Send FLOWER from YOUR wallet to the address shown\n\n' +
+        '4️⃣ /pay\n' +
+        '   Bot verifies payment and activates 30 days\n\n' +
+        '💰 Cost: <b>$1 USD / 30 days</b>\n' +
+        '⚠️ You MUST send from your linked wallet\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n' +
+        '📈 <b>PRICE COMMANDS</b>\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n\n' +
+        '/price &lt;resource&gt; - Price info (e.g. /price wood)\n' +
+        '/priceall - All 60 resource prices\n' +
+        '/graph &lt;resource&gt; - Chart image (e.g. /graph stone)\n' +
+        '/list - List all 60 resources\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n' +
+        '🔔 <b>ALERT COMMANDS</b>\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n\n' +
+        '/alerts - View all your active alerts\n' +
+        '/alert &lt;res&gt; &lt;high%&gt; &lt;low%&gt; - Set percentage alert for one resource\n' +
+        '/alertall &lt;high%&gt; &lt;low%&gt; - Set alerts for all resources\n' +
+        '/alertall &lt;high%&gt; &lt;low%&gt; keep - Same, but keeps existing alerts\n' +
+        '/pricealert &lt;res&gt; &lt;above|below&gt; &lt;price&gt; - Target price alert\n' +
+        '/removealert &lt;resource&gt; - Remove one resource alert\n' +
+        '/removeallalerts - Remove all alerts\n\n' +
+        '<b>Examples:</b>\n' +
+        '/alert yam 10 15 → yam at +10% or -15% vs average\n' +
+        '/alertall 20 15 → all resources at +20% or -15%\n' +
+        '/alertall 20 15 keep → same, keeping existing alerts\n' +
+        '/pricealert milk below 0.01 → alert if milk drops below 0.01\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n' +
+        '👛 <b>WALLET COMMANDS</b>\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n\n' +
+        '/connectwallet &lt;address&gt; - Link your wallet\n' +
+        '/wallet - See your linked wallet\n' +
+        '/status - Days remaining and subscription status\n' +
+        '/subscribe - Get payment info\n' +
+        '/pay - Verify FLOWER payment\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n' +
+        '🌐 <b>LANGUAGE</b>\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n\n' +
+        '/language es - Switch to Spanish\n' +
+        '/language en - Switch to English\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n' +
+        '📱 <b>NTFY PHONE NOTIFICATIONS</b>\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n\n' +
+        '/ntfy - Setup NTFY app for phone notifications\n' +
+        '/ntfytest - Send test notification to phone\n' +
+        '/ntfygraph on/off - Enable/disable graph images in NTFY\n' +
+        '/ntfystatus - Check your NTFY settings\n\n' +
+        '📋 <b>Note:</b> NTFY notifications are public. DO NOT share your topic.' + adminLine
       )
     );
   }
