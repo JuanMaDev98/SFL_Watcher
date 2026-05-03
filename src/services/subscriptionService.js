@@ -12,6 +12,11 @@ const DEFAULT_LANGUAGE = 'es';
 
 let supabase;
 
+function isMissingColumnError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('column') && (message.includes('does not exist') || message.includes('schema cache'));
+}
+
 /**
  * Get or create supabase client with service role
  */
@@ -73,19 +78,34 @@ async function ensureSubscription(userId) {
   const trialEndsAt = new Date();
   trialEndsAt.setDate(trialEndsAt.getDate() + TRIAL_DAYS);
 
-  const { data: newSub, error } = await db
+  let insertPayload = {
+    user_id: userId,
+    status: 'trial',
+    preferred_language: DEFAULT_LANGUAGE,
+    pending_action: null,
+    pending_payload: {},
+    trial_started_at: new Date().toISOString(),
+    trial_ends_at: trialEndsAt.toISOString()
+  };
+
+  let { data: newSub, error } = await db
     .from('user_subscriptions')
-    .insert({
-      user_id: userId,
-      status: 'trial',
-      preferred_language: DEFAULT_LANGUAGE,
-      pending_action: null,
-      pending_payload: {},
-      trial_started_at: new Date().toISOString(),
-      trial_ends_at: trialEndsAt.toISOString()
-    })
+    .insert(insertPayload)
     .select()
     .single();
+
+  if (error && isMissingColumnError(error)) {
+    ({ data: newSub, error } = await db
+      .from('user_subscriptions')
+      .insert({
+        user_id: userId,
+        status: 'trial',
+        trial_started_at: insertPayload.trial_started_at,
+        trial_ends_at: insertPayload.trial_ends_at
+      })
+      .select()
+      .single());
+  }
 
   if (error) throw error;
   return formatSubscription(newSub);
@@ -318,11 +338,19 @@ async function updateNtfySettings(userId, settings) {
 async function getUserPreferences(userId) {
   await ensureSubscription(userId);
   const db = getSupabase();
-  const { data, error } = await db
+  let { data, error } = await db
     .from('user_subscriptions')
     .select('preferred_language, pending_action, pending_payload, status, ntfy_enabled, ntfy_graph_enabled, notify_expiry')
     .eq('user_id', userId)
     .single();
+
+  if (error && isMissingColumnError(error)) {
+    ({ data, error } = await db
+      .from('user_subscriptions')
+      .select('status, ntfy_enabled, ntfy_graph_enabled')
+      .eq('user_id', userId)
+      .single());
+  }
 
   if (error) throw error;
 
@@ -350,6 +378,9 @@ async function setUserLanguage(userId, language) {
     .from('user_subscriptions')
     .update({ preferred_language: normalized, updated_at: new Date().toISOString() })
     .eq('user_id', userId);
+  if (error && isMissingColumnError(error)) {
+    throw new Error('Database migration required for /language');
+  }
   if (error) throw error;
   return normalized;
 }
@@ -361,6 +392,9 @@ async function setPendingAction(userId, action, payload = {}) {
     .from('user_subscriptions')
     .update({ pending_action: action, pending_payload: payload, updated_at: new Date().toISOString() })
     .eq('user_id', userId);
+  if (error && isMissingColumnError(error)) {
+    throw new Error('Database migration required for promo flow');
+  }
   if (error) throw error;
 }
 
@@ -370,15 +404,24 @@ async function clearPendingAction(userId) {
     .from('user_subscriptions')
     .update({ pending_action: null, pending_payload: {}, updated_at: new Date().toISOString() })
     .eq('user_id', userId);
+  if (error && isMissingColumnError(error)) {
+    throw new Error('Database migration required for promo flow');
+  }
   if (error) throw error;
 }
 
 async function getFreeTierUsers() {
   const db = getSupabase();
-  const { data, error } = await db
+  let { data, error } = await db
     .from('user_subscriptions')
     .select('user_id, preferred_language, status')
     .in('status', ['trial', 'trial_expired']);
+  if (error && isMissingColumnError(error)) {
+    ({ data, error } = await db
+      .from('user_subscriptions')
+      .select('user_id, status')
+      .in('status', ['trial', 'trial_expired']));
+  }
   if (error) throw error;
   return (data || []).map(row => ({
     userId: row.user_id,

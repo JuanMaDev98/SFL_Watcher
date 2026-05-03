@@ -280,31 +280,32 @@ async function handlePendingFlow(chatId, text) {
 // WEBHOOK HANDLER
 // ============================================
 router.post('/webhook', async (req, res) => {
-  const { message } = req.body || {};
-  if (!message || !message.text) {
-    res.json({ ok: true });
-    return;
-  }
-
-  const chatId = message.chat.id;
-  const text = message.text.trim();
-  await ensureSubscription(String(chatId));
-
-  if (!text.startsWith('/')) {
-    const handled = await handlePendingFlow(chatId, text);
-    if (!handled) {
-      const locale = await getLocale(chatId);
-      await sendTelegramAwait(chatId, pick(locale, '❌ No entendí ese mensaje. Usa /help para ver los comandos.', '❌ I did not understand that message. Use /help to see commands.'));
+  try {
+    const { message } = req.body || {};
+    if (!message || !message.text) {
+      res.json({ ok: true });
+      return;
     }
-    res.json({ ok: true });
-    return;
-  }
 
-  const parts = text.split(' ');
-  const command = parts[0].toLowerCase();
-  const locale = await getLocale(chatId);
+    const chatId = message.chat.id;
+    const text = message.text.trim();
+    await ensureSubscription(String(chatId));
 
-  logger.info(`[webhook] ${command} from ${chatId}`);
+    if (!text.startsWith('/')) {
+      const handled = await handlePendingFlow(chatId, text);
+      if (!handled) {
+        const locale = await getLocale(chatId);
+        await sendTelegramAwait(chatId, pick(locale, '❌ No entendí ese mensaje. Usa /help para ver los comandos.', '❌ I did not understand that message. Use /help to see commands.'));
+      }
+      res.json({ ok: true });
+      return;
+    }
+
+    const parts = text.split(' ');
+    const command = parts[0].toLowerCase();
+    const locale = await getLocale(chatId);
+
+    logger.info(`[webhook] ${command} from ${chatId}`);
 
   if (command === '/start') {
     await sendTelegramAwait(chatId,
@@ -443,7 +444,19 @@ router.post('/webhook', async (req, res) => {
     await sendTelegramAwait(chatId, '❌ Unknown command.\nUse /help to see commands.');
   }
 
-  res.json({ ok: true });
+    res.json({ ok: true });
+  } catch (error) {
+    logger.error('[webhook] fatal error: ' + error.message, { stack: error.stack });
+    try {
+      const chatId = req?.body?.message?.chat?.id;
+      if (chatId) {
+        await sendTelegramAwait(chatId, '⚠️ Temporary bot error. I am recovering. Try again in a moment.');
+      }
+    } catch (notifyError) {
+      logger.error('[webhook] fallback notify failed: ' + notifyError.message);
+    }
+    res.json({ ok: true });
+  }
 });
 
 // ============================================
