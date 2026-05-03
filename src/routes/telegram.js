@@ -225,21 +225,21 @@ async function checkSubscription(chatId) {
   if (sub.status === 'trial_expired') {
     return pick(
       locale,
-      'Wallet Required\\n\\nTu prueba de 7 días terminó.\\nConecta tu wallet para suscribirte:\\n/connectwallet <tu_address>\\n\\nEjemplo: /connectwallet 0x742d35Cc6634C0532925a3b844Bc9e7595f1d687',
-      'Wallet Required\\n\\nYour 7-day trial has ended.\\nConnect your wallet to subscribe:\\n/connectwallet <your_address>\\n\\nExample: /connectwallet 0x742d35Cc6634C0532925a3b844Bc9e7595f1d687'
+      'Wallet Required\n\nTu prueba de 7 días terminó.\nConecta tu wallet para suscribirte:\n/connectwallet <tu_address>\n\nEjemplo: /connectwallet 0x742d35Cc6634C0532925a3b844Bc9e7595f1d687',
+      'Wallet Required\n\nYour 7-day trial has ended.\nConnect your wallet to subscribe:\n/connectwallet <your_address>\n\nExample: /connectwallet 0x742d35Cc6634C0532925a3b844Bc9e7595f1d687'
     );
   }
 
   if (sub.status === 'expired') {
-    return pick(locale, 'Suscripción expirada\\n\\nTu suscripción terminó.\\nRenueva con /subscribe', 'Subscription Expired\\n\\nYour subscription has ended.\\nExtend with /subscribe');
+    return pick(locale, 'Suscripción expirada\n\nTu suscripción terminó.\nRenueva con /subscribe', 'Subscription Expired\n\nYour subscription has ended.\nExtend with /subscribe');
   }
 
   const wallet = await getUserWallet(chatId.toString());
   if (!wallet) {
     return pick(
       locale,
-      'Wallet Required\\n\\nConecta tu wallet para usar el bot:\\n/connectwallet <tu_address>\\n\\nEjemplo: /connectwallet 0x742d35Cc6634C0532925a3b844Bc9e7595f1d687',
-      'Wallet Required\\n\\nConnect your wallet to use the bot:\\n/connectwallet <your_address>\\n\\nExample: /connectwallet 0x742d35Cc6634C0532925a3b844Bc9e7595f1d687'
+      'Wallet Required\n\nConecta tu wallet para usar el bot:\n/connectwallet <tu_address>\n\nEjemplo: /connectwallet 0x742d35Cc6634C0532925a3b844Bc9e7595f1d687',
+      'Wallet Required\n\nConnect your wallet to use the bot:\n/connectwallet <your_address>\n\nExample: /connectwallet 0x742d35Cc6634C0532925a3b844Bc9e7595f1d687'
     );
   }
 
@@ -254,7 +254,7 @@ async function handlePendingFlow(chatId, text) {
 
   if (prefs.pendingAction === 'sendpromo_es') {
     await setPendingAction(String(chatId), 'sendpromo_en', { promo_es: text.trim() });
-    await sendTelegramAwait(chatId, pick(locale, '✅ Promo en español guardada.\\n\\nAhora manda la promo en inglés.', '✅ Spanish promo saved.\\n\\nNow send the English promo.'));
+    await sendTelegramAwait(chatId, pick(locale, '✅ Promo en español guardada.\n\nAhora manda la promo en inglés.', '✅ Spanish promo saved.\n\nNow send the English promo.'));
     return true;
   }
 
@@ -269,12 +269,12 @@ async function handlePendingFlow(chatId, text) {
     for (const user of recipients) {
       const outgoing = promoMessageForLanguage(user.language, payload.promo_es || text.trim(), payload.promo_en || text.trim());
       const tgTitle = promoMessageForLanguage(user.language, '📣 <b>Novedad de SFL Watcher</b>', '📣 <b>SFL Watcher Update</b>');
-      const tgMessage = `${tgTitle}\\n\\n${escapeHtml(outgoing)}`;
+      const tgMessage = `${tgTitle}\n\n${escapeHtml(outgoing)}`;
       const okTelegram = await sendTelegramMessage(user.userId, tgMessage);
       if (okTelegram) sentTelegram += 1;
 
       if (user.ntfyEnabled) {
-        const ntfyBody = `${promoMessageForLanguage(user.language, 'Novedad de SFL Watcher', 'SFL Watcher Update')}\\n\\n${outgoing}`;
+        const ntfyBody = `${promoMessageForLanguage(user.language, 'Novedad de SFL Watcher', 'SFL Watcher Update')}\n\n${outgoing}`;
         const okNtfy = await sendNtfyNotification(getUserNtfyTopic(user.userId), ntfyBody, {
           title: 'SFL Watcher Update',
           tags: 'loudspeaker',
@@ -285,7 +285,7 @@ async function handlePendingFlow(chatId, text) {
     }
 
     await clearPendingAction(String(chatId));
-    await sendTelegramAwait(chatId, pick(locale, `✅ Promo enviada por Telegram a ${sentTelegram}/${recipients.length} usuarios.\\n✅ Promo enviada por NTFY a ${sentNtfy}/${ntfyRecipients.length} usuarios con NTFY activo.`, `✅ Promo sent by Telegram to ${sentTelegram}/${recipients.length} users.\\n✅ Promo sent by NTFY to ${sentNtfy}/${ntfyRecipients.length} users with NTFY enabled.`));
+    await sendTelegramAwait(chatId, pick(locale, `✅ Promo enviada por Telegram a ${sentTelegram}/${recipients.length} usuarios.\n✅ Promo enviada por NTFY a ${sentNtfy}/${ntfyRecipients.length} usuarios con NTFY activo.`, `✅ Promo sent by Telegram to ${sentTelegram}/${recipients.length} users.\n✅ Promo sent by NTFY to ${sentNtfy}/${ntfyRecipients.length} users with NTFY enabled.`));
     return true;
   }
 
