@@ -50,9 +50,60 @@ const {
   parsePercentAlertInput,
   parseTargetAlertArgs,
 } = require('../services/commandParser');
+const {
+  hasConfiguredSecret,
+  isSecretAuthorized,
+} = require('../services/requestSecurity');
 
 const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
 const OWNER_TELEGRAM_ID = String(process.env.OWNER_TELEGRAM_ID || '1166287745');
+const TELEGRAM_WEBHOOK_SECRET = String(process.env.TELEGRAM_WEBHOOK_SECRET || '');
+const INTERNAL_API_SECRET = String(process.env.INTERNAL_API_SECRET || '');
+
+function rejectUnauthorized(res, mode = 'json') {
+  if (mode === 'hidden') {
+    return res.status(404).send('Not found');
+  }
+  return res.status(401).json({ ok: false, error: 'unauthorized' });
+}
+
+function requireInternalApiSecret(req, res) {
+  if (!hasConfiguredSecret(INTERNAL_API_SECRET)) {
+    logger.error('[security] INTERNAL_API_SECRET is not configured');
+    res.status(503).json({ ok: false, error: 'internal_api_secret_not_configured' });
+    return false;
+  }
+
+  const provided = req.get('x-internal-api-secret');
+  if (!isSecretAuthorized(provided, INTERNAL_API_SECRET)) {
+    logger.warn('[security] blocked access to protected telegram admin route');
+    rejectUnauthorized(res, 'hidden');
+    return false;
+  }
+
+  return true;
+}
+
+let webhookSecretMissingLogged = false;
+
+function requireWebhookSecret(req, res) {
+  if (!hasConfiguredSecret(TELEGRAM_WEBHOOK_SECRET)) {
+    if (!webhookSecretMissingLogged) {
+      logger.warn('[security] TELEGRAM_WEBHOOK_SECRET is not configured; webhook is running in compatibility mode without header validation');
+      webhookSecretMissingLogged = true;
+    }
+    return true;
+  }
+
+  const provided = req.get('x-telegram-bot-api-secret-token');
+  if (!isSecretAuthorized(provided, TELEGRAM_WEBHOOK_SECRET)) {
+    logger.warn('[security] blocked telegram webhook request with invalid secret');
+    rejectUnauthorized(res);
+    return false;
+  }
+
+  return true;
+}
 
 async function postTelegram(method, payload) {
   try {
@@ -436,6 +487,10 @@ async function processCallbackQuery(callbackQuery) {
 // WEBHOOK HANDLER
 // ============================================
 router.post('/webhook', async (req, res) => {
+  if (!requireWebhookSecret(req, res)) {
+    return;
+  }
+
   try {
     const { callback_query: callbackQuery } = req.body || {};
     if (callbackQuery) {
@@ -1609,22 +1664,38 @@ async function processPay(chatId) {
 }
 
 // ============================================
-// TEST & SETUP ENDPOINTS
+// PROTECTED ADMIN ENDPOINTS
 // ============================================
 
-router.get('/test', async (req, res) => {
+router.post('/test', async (req, res) => {
+  if (!requireInternalApiSecret(req, res)) {
+    return;
+  }
+
   const ok = await sendTelegramAwait(OWNER_TELEGRAM_ID, '🐣 Test from SFL Watcher API!');
   res.json({ ok });
 });
 
-router.get('/setwebhook', async (req, res) => {
+router.post('/setwebhook', async (req, res) => {
+  if (!requireInternalApiSecret(req, res)) {
+    return;
+  }
+
+  if (!hasConfiguredSecret(TELEGRAM_WEBHOOK_SECRET)) {
+    return res.status(503).json({ ok: false, error: 'telegram_webhook_secret_not_configured' });
+  }
+
   const webhookUrl = `${process.env.APP_URL || 'https://sfl-watcher.vercel.app'}/api/telegram/webhook`;
 
   try {
     const resp = await fetch(`${TELEGRAM_API}/setWebhook`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: webhookUrl, allowed_updates: ['message'] })
+      body: JSON.stringify({
+        url: webhookUrl,
+        secret_token: TELEGRAM_WEBHOOK_SECRET,
+        allowed_updates: ['message', 'callback_query'],
+      })
     });
     const data = await resp.json();
     res.json(data);
