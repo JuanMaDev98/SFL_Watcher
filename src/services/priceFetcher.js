@@ -1,6 +1,7 @@
 const supabase = require('../lib/supabase');
 const logger = require('../utils/logger');
 const { extractUniqueResources } = require('./resourceCatalog');
+const { buildStatsFromSnapshots } = require('./priceStats');
 
 const SFL_API_URL = process.env.SFL_API_URL || 'https://sfl.world/api/v1';
 const RESOURCE_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -86,65 +87,48 @@ async function getResourceStats(resource) {
   };
 }
 
+async function getRecentSnapshotsSince(since) {
+  const pageSize = 1000;
+  const rows = [];
+  let from = 0;
+
+  while (true) {
+    const to = from + pageSize - 1;
+    const { data, error } = await supabase
+      .from('price_snapshots')
+      .select('resource, price, created_at')
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .range(from, to);
+
+    if (error) {
+      logger.error('getRecentSnapshotsSince error:', error.message);
+      throw error;
+    }
+
+    if (!data || data.length === 0) break;
+    rows.push(...data);
+
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
 /**
- * Get all resources with latest stats
- * Uses single RPC call for efficiency
+ * Get all resources with latest stats without N+1 RPC calls.
  */
 async function getAllPrices() {
-  // Get distinct resources from last 24h only (efficient query)
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  
-  const { data: resources, error } = await supabase
-    .from('price_snapshots')
-    .select('resource')
-    .gte('created_at', since)
-    .order('resource');
 
-  if (error || !resources) return [];
-  
-  const uniqueResources = extractUniqueResources(resources);
-  
+  const allSnapshots = await getRecentSnapshotsSince(since);
+  if (!allSnapshots || allSnapshots.length === 0) return [];
+
+  const uniqueResources = extractUniqueResources(allSnapshots);
   if (uniqueResources.length === 0) return [];
-  
-  // If only 1-5 resources, use individual calls (original logic)
-  if (uniqueResources.length <= 5) {
-    const results = [];
-    for (const resource of uniqueResources) {
-      const stats = await getResourceStats(resource);
-      if (stats) results.push({ ...stats, resource });
-    }
-    return results;
-  }
-  
-  // For many resources, query raw data and compute in JS
-  // This is faster than N RPC calls
-  const { data: allSnapshots } = await supabase
-    .from('price_snapshots')
-    .select('resource, price, created_at')
-    .gte('created_at', since)
-    .order('created_at', { ascending: false });
-  
-  if (!allSnapshots) return [];
-  
-  // Group by resource and compute stats
-  const byResource = {};
-  for (const s of allSnapshots) {
-    if (!byResource[s.resource]) byResource[s.resource] = [];
-    byResource[s.resource].push(parseFloat(s.price));
-  }
-  
-  const output = [];
-  for (const [resource, prices] of Object.entries(byResource)) {
-    if (prices.length === 0) continue;
-    const current = prices[0];
-    const avg = prices.reduce((a, b) => a + b, 0) / prices.length;
-    const min = Math.min(...prices);
-    const max = Math.max(...prices);
-    const pct = avg > 0 ? ((current - avg) / avg * 100) : 0;
-    output.push({ resource, current_price: current, avg_price: avg, min_price: min, max_price: max, percent_vs_avg: pct, snapshot_count: prices.length });
-  }
-  
-  return output.sort((a, b) => a.resource.localeCompare(b.resource));
+
+  return buildStatsFromSnapshots(allSnapshots);
 }
 
 /**

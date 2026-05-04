@@ -54,16 +54,27 @@ const {
 const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
 const OWNER_TELEGRAM_ID = String(process.env.OWNER_TELEGRAM_ID || '1166287745');
 
+async function postTelegram(method, payload) {
+  try {
+    const resp = await fetch(`${TELEGRAM_API}/${method}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return resp.ok;
+  } catch (e) {
+    logger.error(`Telegram ${method} error: ` + e.message);
+    return false;
+  }
+}
+
 /**
  * Fire-and-forget Telegram sender (for simple responses)
  */
-function sendTelegram(chatId, text) {
+function sendTelegram(chatId, text, extra = {}) {
   setImmediate(() => {
-    fetch(`${TELEGRAM_API}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' })
-    }).catch(e => logger.error('Telegram error: ' + e.message));
+    postTelegram('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', ...extra })
+      .catch(e => logger.error('Telegram sendMessage error: ' + e.message));
   });
 }
 
@@ -71,51 +82,25 @@ function sendTelegram(chatId, text) {
  * Awaited Telegram sender (waits for response before Vercel cuts off)
  */
 async function sendTelegramAwait(chatId, text, extra = {}) {
-  try {
-    const resp = await fetch(`${TELEGRAM_API}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', ...extra })
-    });
-    return resp.ok;
-  } catch (e) {
-    logger.error('Telegram error: ' + e.message);
-    return false;
-  }
+  return postTelegram('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', ...extra });
 }
 
 async function answerCallbackQuery(callbackQueryId, text = '') {
-  try {
-    const resp = await fetch(`${TELEGRAM_API}/answerCallbackQuery`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ callback_query_id: callbackQueryId, text, show_alert: false })
-    });
-    return resp.ok;
-  } catch (e) {
-    logger.error('Telegram callback answer error: ' + e.message);
-    return false;
-  }
+  return postTelegram('answerCallbackQuery', {
+    callback_query_id: callbackQueryId,
+    text,
+    show_alert: false,
+  });
 }
 
 async function editTelegramMessage(chatId, messageId, text, extra = {}) {
-  try {
-    const resp = await fetch(`${TELEGRAM_API}/editMessageText`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        message_id: messageId,
-        text,
-        parse_mode: 'HTML',
-        ...extra,
-      })
-    });
-    return resp.ok;
-  } catch (e) {
-    logger.error('Telegram editMessageText error: ' + e.message);
-    return false;
-  }
+  return postTelegram('editMessageText', {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+    parse_mode: 'HTML',
+    ...extra,
+  });
 }
 
 function buildLanguageKeyboard() {
