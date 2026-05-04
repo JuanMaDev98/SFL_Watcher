@@ -4,10 +4,18 @@ const { fetchPrices } = require('../services/priceFetcher');
 const { checkAlerts } = require('../services/alertEngine');
 const { clearChartCache } = require('../services/chartService');
 const { pick } = require('../services/formatters');
+const {
+  MONITOR_MAX_AGE_MINUTES,
+  DAILY_LOOKBACK_HOURS,
+  analyzeSnapshotWindows,
+  formatMonitorAlert,
+  formatDailySummary,
+} = require('../services/cronMonitor');
 
 const logger = require('../utils/logger');
 
 const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
+const OWNER_TELEGRAM_ID = String(process.env.OWNER_TELEGRAM_ID || '1166287745');
 const EXPIRY_WARNING_HOURS = 24; // Notify user when subscription expires in <= 24 hours
 
 /**
@@ -23,6 +31,42 @@ async function sendTelegram(chatId, text) {
   } catch (e) {
     logger.error('Telegram send error: ' + e.message);
   }
+}
+
+async function getSupabaseClient() {
+  return require('../lib/supabase');
+}
+
+async function fetchRecentSnapshotRows(hours = DAILY_LOOKBACK_HOURS) {
+  const supabase = await getSupabaseClient();
+  const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+  const pageSize = 1000;
+  const rows = [];
+  let from = 0;
+
+  while (true) {
+    const to = from + pageSize - 1;
+    const { data, error } = await supabase
+      .from('price_snapshots')
+      .select('created_at')
+      .gte('created_at', since)
+      .order('created_at', { ascending: true })
+      .range(from, to);
+
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+
+    rows.push(...data);
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
+async function buildSnapshotHealthSummary(hours = DAILY_LOOKBACK_HOURS) {
+  const rows = await fetchRecentSnapshotRows(hours);
+  return analyzeSnapshotWindows(rows, { lookbackHours: hours, maxAgeMinutes: MONITOR_MAX_AGE_MINUTES });
 }
 
 /**
@@ -144,6 +188,48 @@ router.get('/fetch-prices', async (req, res) => {
       error: error.message,
       timestamp: new Date().toISOString()
     });
+  }
+});
+
+router.get('/monitor', async (req, res) => {
+  try {
+    const summary = await buildSnapshotHealthSummary(DAILY_LOOKBACK_HOURS);
+    const shouldNotify = !summary.healthy;
+
+    if (shouldNotify) {
+      await sendTelegram(OWNER_TELEGRAM_ID, formatMonitorAlert(summary, 'es'));
+    }
+
+    res.json({
+      success: true,
+      owner: OWNER_TELEGRAM_ID,
+      notified: shouldNotify,
+      summary,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error('Cron monitor error: ' + error.message);
+    res.status(500).json({ success: false, error: error.message, timestamp: new Date().toISOString() });
+  }
+});
+
+router.get('/daily-report', async (req, res) => {
+  try {
+    const summary = await buildSnapshotHealthSummary(DAILY_LOOKBACK_HOURS);
+    if (summary.missingCount > 0 || !summary.healthy) {
+      await sendTelegram(OWNER_TELEGRAM_ID, formatDailySummary(summary, 'es'));
+    }
+
+    res.json({
+      success: true,
+      owner: OWNER_TELEGRAM_ID,
+      notified: summary.missingCount > 0 || !summary.healthy,
+      summary,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error('Cron daily-report error: ' + error.message);
+    res.status(500).json({ success: false, error: error.message, timestamp: new Date().toISOString() });
   }
 });
 

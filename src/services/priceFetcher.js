@@ -1,5 +1,6 @@
 const supabase = require('../lib/supabase');
 const logger = require('../utils/logger');
+const { extractUniqueResources } = require('./resourceCatalog');
 
 const SFL_API_URL = process.env.SFL_API_URL || 'https://sfl.world/api/v1';
 const RESOURCE_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -101,7 +102,7 @@ async function getAllPrices() {
 
   if (error || !resources) return [];
   
-  const uniqueResources = [...new Set(resources.map(r => r.resource))];
+  const uniqueResources = extractUniqueResources(resources);
   
   if (uniqueResources.length === 0) return [];
   

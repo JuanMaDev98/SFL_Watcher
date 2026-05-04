@@ -5,53 +5,21 @@ const { sendNtfyNotification, formatNtfyAlert, formatNtfyTargetAlert, getUserNtf
 const { getUserLanguage, getBroadcastUsers } = require('./subscriptionService');
 const { getResourceHistory } = require('./priceFetcher');
 const { shouldThrottleAlert, clearAlertThrottle, recordError } = require('./runtimeStatsService');
+const {
+  CRITICAL_THRESHOLD_PCT,
+  CRITICAL_STEP_PCT,
+  CRITICAL_RESET_PCT,
+  getPercentResetThreshold,
+  getPercentStep,
+  getTargetResetPrice,
+  getTargetStep,
+  getCriticalStep,
+} = require('./alertMath');
 const logger = require('../utils/logger');
 
 const percentAlertState = new Map();
 const targetAlertState = new Map();
 const criticalAlertState = new Map();
-const ALERT_ESCALATION_STEP_PCT = 20;
-const CRITICAL_THRESHOLD_PCT = 50;
-const CRITICAL_STEP_PCT = 20;
-const CRITICAL_RESET_PCT = 0;
-
-function getPercentResetThreshold() {
-  return 0;
-}
-
-function getPercentStep(currentPct, threshold, direction) {
-  const current = Number(currentPct || 0);
-  const base = Math.abs(Number(threshold || 0));
-  if (!base) return 0;
-  if (direction === 'rise') {
-    if (current < base) return 0;
-    return 1 + Math.floor((current - base) / ALERT_ESCALATION_STEP_PCT);
-  }
-  if (current > -base) return 0;
-  return 1 + Math.floor((Math.abs(current) - base) / ALERT_ESCALATION_STEP_PCT);
-}
-
-function getTargetResetPrice(targetPrice) {
-  const target = Number(targetPrice || 0);
-  if (!target) return 0;
-  return target;
-}
-
-function getTargetStep(currentPrice, targetPrice, direction) {
-  const current = Number(currentPrice || 0);
-  const target = Number(targetPrice || 0);
-  if (!target) return 0;
-
-  if (direction === 'above') {
-    if (current < target) return 0;
-    const progressPct = ((current - target) / target) * 100;
-    return 1 + Math.floor(progressPct / 20);
-  }
-
-  if (current > target) return 0;
-  const progressPct = ((target - current) / target) * 100;
-  return 1 + Math.floor(progressPct / 20);
-}
 
 function getOrInitPercentState(alertId, alert, currentPct) {
   if (!percentAlertState.has(alertId)) {
@@ -587,8 +555,7 @@ async function processCriticalAlerts(resource, stats, currentPct, broadcastUsers
     for (const direction of directions) {
       const persistedStep = persistedStates.get(`${user.userId}:${direction}`) || 0;
       const state = getCriticalState(user.userId, resource, direction, persistedStep);
-      const magnitude = Math.abs(currentPct);
-      const step = 1 + Math.floor((magnitude - CRITICAL_THRESHOLD_PCT) / CRITICAL_STEP_PCT);
+      const step = getCriticalStep(currentPct);
       if (step <= state.step) continue;
 
       const throttleKey = `${user.userId}:${resource}:critical:${direction}:step:${step}`;

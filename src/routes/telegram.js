@@ -45,6 +45,11 @@ const {
   recordError,
   getRuntimeHealthSnapshot,
 } = require('../services/runtimeStatsService');
+const {
+  joinResourceTokens,
+  parsePercentAlertInput,
+  parseTargetAlertArgs,
+} = require('../services/commandParser');
 
 const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
 const OWNER_TELEGRAM_ID = String(process.env.OWNER_TELEGRAM_ID || '1166287745');
@@ -167,10 +172,6 @@ async function assertKnownResource(resource, locale) {
       `❌ Resource <b>${escapeHtml(normalized || '?')}</b> does not exist in recent snapshots yet. Use /list to see available ones.`
     )
   };
-}
-
-function joinResourceTokens(tokens = []) {
-  return tokens.join(' ').trim().toLowerCase();
 }
 
 /**
@@ -877,22 +878,13 @@ async function processAlertConfig(chatId, input, isListMode) {
       return;
     }
 
-    const tokens = input.trim().split(/\s+/);
-    if (tokens.length < 3) {
+    const parsedAlert = parsePercentAlertInput(input);
+    if (!parsedAlert.ok) {
       await sendTelegramAwait(chatId, pick(locale, '❌ Uso: /alert &lt;resource&gt; &lt;sube%&gt; &lt;baja%&gt;\nEjemplo: /alert yam 10 15', '❌ Usage: /alert &lt;resource&gt; &lt;rise%&gt; &lt;fall%&gt;\nExample: /alert yam 10 15'));
       return;
     }
 
-    const resource = joinResourceTokens(tokens.slice(0, -2));
-    const rawHigh = parseFloat(tokens[tokens.length - 2]);
-    const rawLow = parseFloat(tokens[tokens.length - 1]);
-    if (isNaN(rawHigh) || isNaN(rawLow)) {
-      await sendTelegramAwait(chatId, pick(locale, '❌ Los porcentajes deben ser números.', '❌ Percentages must be numbers.'));
-      return;
-    }
-
-    const thresholdHigh = Math.abs(rawHigh);
-    const thresholdLow = -Math.abs(rawLow);
+    const { resource, thresholdHigh, thresholdLow } = parsedAlert;
     const resourceCheck = await assertKnownResource(resource, locale);
     if (!resourceCheck.ok) {
       await sendTelegramAwait(chatId, resourceCheck.message);
@@ -1092,16 +1084,13 @@ async function processRemoveAllAlerts(chatId) {
 async function processPriceTargetAlert(chatId, args) {
   try {
     const locale = await getLocale(chatId);
-    const priceRaw = args[args.length - 1];
-    const directionRaw = args[args.length - 2];
-    const resource = joinResourceTokens(args.slice(0, -2));
-    const direction = String(directionRaw || '').toLowerCase();
-    const targetPrice = Number(String(priceRaw || '').replace(',', '.'));
-
-    if (!resource || !['above', 'below'].includes(direction) || !Number.isFinite(targetPrice) || targetPrice <= 0) {
+    const parsedTarget = parseTargetAlertArgs(args);
+    if (!parsedTarget.ok) {
       await sendTelegramAwait(chatId, pick(locale, '❌ Uso: /pricealert &lt;resource&gt; &lt;above|below&gt; &lt;precio&gt;\nEjemplo: /pricealert milk below 0.01', '❌ Usage: /pricealert &lt;resource&gt; &lt;above|below&gt; &lt;price&gt;\nExample: /pricealert milk below 0.01'));
       return;
     }
+
+    const { resource, direction, targetPrice } = parsedTarget;
 
     const resourceCheck = await assertKnownResource(resource, locale);
     if (!resourceCheck.ok) {
