@@ -19,8 +19,11 @@ CREATE TABLE IF NOT EXISTS user_alerts (
     updated_at TIMESTAMPTZ,
     last_notified_at TIMESTAMPTZ,
     last_notified_rise_at TIMESTAMPTZ,
+    last_notified_rise_step INTEGER DEFAULT 0,
     last_notified_fall_at TIMESTAMPTZ,
-    last_notified_target_at TIMESTAMPTZ
+    last_notified_fall_step INTEGER DEFAULT 0,
+    last_notified_target_at TIMESTAMPTZ,
+    last_notified_target_step INTEGER DEFAULT 0
 );
 
 -- Index for fast lookups by user
@@ -40,8 +43,11 @@ ADD COLUMN IF NOT EXISTS target_price NUMERIC,
 ADD COLUMN IF NOT EXISTS target_direction TEXT,
 ADD COLUMN IF NOT EXISTS last_notified_at TIMESTAMPTZ,
 ADD COLUMN IF NOT EXISTS last_notified_rise_at TIMESTAMPTZ,
+ADD COLUMN IF NOT EXISTS last_notified_rise_step INTEGER DEFAULT 0,
 ADD COLUMN IF NOT EXISTS last_notified_fall_at TIMESTAMPTZ,
+ADD COLUMN IF NOT EXISTS last_notified_fall_step INTEGER DEFAULT 0,
 ADD COLUMN IF NOT EXISTS last_notified_target_at TIMESTAMPTZ,
+ADD COLUMN IF NOT EXISTS last_notified_target_step INTEGER DEFAULT 0,
 ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
 
 ALTER TABLE user_alerts ALTER COLUMN threshold_percent DROP NOT NULL;

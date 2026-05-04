@@ -4,20 +4,19 @@ const { generateChartDataUrl, generateChartBuffer } = require('./chartService');
 const { sendNtfyNotification, formatNtfyAlert, formatNtfyTargetAlert, getUserNtfyTopic } = require('./ntfyService');
 const { getUserLanguage, getBroadcastUsers } = require('./subscriptionService');
 const { getResourceHistory } = require('./priceFetcher');
-const { shouldThrottleAlert, recordError } = require('./runtimeStatsService');
+const { shouldThrottleAlert, clearAlertThrottle, recordError } = require('./runtimeStatsService');
 const logger = require('../utils/logger');
 
 const percentAlertState = new Map();
 const targetAlertState = new Map();
 const criticalAlertState = new Map();
+const ALERT_ESCALATION_STEP_PCT = 20;
 const CRITICAL_THRESHOLD_PCT = 50;
 const CRITICAL_STEP_PCT = 20;
-const CRITICAL_RESET_PCT = 35;
+const CRITICAL_RESET_PCT = 0;
 
-function getPercentResetThreshold(threshold, direction) {
-  const abs = Math.abs(Number(threshold || 0));
-  const resetAbs = abs * 0.75;
-  return direction === 'rise' ? resetAbs : -resetAbs;
+function getPercentResetThreshold() {
+  return 0;
 }
 
 function getPercentStep(currentPct, threshold, direction) {
@@ -26,16 +25,16 @@ function getPercentStep(currentPct, threshold, direction) {
   if (!base) return 0;
   if (direction === 'rise') {
     if (current < base) return 0;
-    return 1 + Math.floor((current - base) / base);
+    return 1 + Math.floor((current - base) / ALERT_ESCALATION_STEP_PCT);
   }
   if (current > -base) return 0;
-  return 1 + Math.floor((Math.abs(current) - base) / base);
+  return 1 + Math.floor((Math.abs(current) - base) / ALERT_ESCALATION_STEP_PCT);
 }
 
-function getTargetResetPrice(targetPrice, direction) {
+function getTargetResetPrice(targetPrice) {
   const target = Number(targetPrice || 0);
   if (!target) return 0;
-  return direction === 'above' ? target * 0.98 : target * 1.02;
+  return target;
 }
 
 function getTargetStep(currentPrice, targetPrice, direction) {
@@ -54,11 +53,18 @@ function getTargetStep(currentPrice, targetPrice, direction) {
   return 1 + Math.floor(progressPct / 20);
 }
 
-function getOrInitPercentState(alertId, alert) {
+function getOrInitPercentState(alertId, alert, currentPct) {
   if (!percentAlertState.has(alertId)) {
+    const fallbackRiseStep = alert?.last_notified_rise_at
+      ? Math.max(getPercentStep(currentPct, alert?.threshold_high || 10, 'rise'), 1)
+      : 0;
+    const fallbackFallStep = alert?.last_notified_fall_at
+      ? Math.max(getPercentStep(currentPct, alert?.threshold_low || -10, 'fall'), 1)
+      : 0;
+
     percentAlertState.set(alertId, {
-      riseStep: alert?.last_notified_rise_at ? 1 : 0,
-      fallStep: alert?.last_notified_fall_at ? 1 : 0,
+      riseStep: Number(alert?.last_notified_rise_step) || fallbackRiseStep,
+      fallStep: Number(alert?.last_notified_fall_step) || fallbackFallStep,
     });
   }
   return percentAlertState.get(alertId);
@@ -67,18 +73,68 @@ function getOrInitPercentState(alertId, alert) {
 function getOrInitTargetState(alertId, alert, stats) {
   if (!targetAlertState.has(alertId)) {
     const direction = alert?.target_direction || (alert?.alert_type === 'price_above' ? 'above' : 'below');
-    const initialStep = alert?.last_notified_target_at ? getTargetStep(stats?.current_price, alert?.target_price, direction) || 1 : 0;
+    const fallbackStep = alert?.last_notified_target_at
+      ? Math.max(getTargetStep(stats?.current_price, alert?.target_price, direction), 1)
+      : 0;
+    const initialStep = Number(alert?.last_notified_target_step) || fallbackStep;
     targetAlertState.set(alertId, { step: initialStep });
   }
   return targetAlertState.get(alertId);
 }
 
-function getCriticalState(userId, resource, direction) {
+function getCriticalState(userId, resource, direction, initialStep = 0) {
   const key = `${userId}:${resource}:${direction}`;
   if (!criticalAlertState.has(key)) {
-    criticalAlertState.set(key, { step: 0 });
+    criticalAlertState.set(key, { step: Number(initialStep) || 0 });
   }
   return criticalAlertState.get(key);
+}
+
+async function loadCriticalStates(resource, userIds = []) {
+  if (!resource || !Array.isArray(userIds) || userIds.length === 0) {
+    return new Map();
+  }
+
+  const normalizedUserIds = [...new Set(userIds.map(id => String(id)).filter(Boolean))];
+  if (!normalizedUserIds.length) {
+    return new Map();
+  }
+
+  const { data, error } = await supabase
+    .from('critical_alert_states')
+    .select('user_id, resource, direction, current_step')
+    .eq('resource', resource)
+    .in('user_id', normalizedUserIds);
+
+  if (error) {
+    throw error;
+  }
+
+  const stateMap = new Map();
+  for (const row of data || []) {
+    stateMap.set(`${row.user_id}:${row.direction}`, Number(row.current_step) || 0);
+  }
+  return stateMap;
+}
+
+async function persistCriticalState(userId, resource, direction, step, currentPct) {
+  const payload = {
+    user_id: String(userId),
+    resource,
+    direction,
+    current_step: Number(step) || 0,
+    last_percent: Number(currentPct),
+    last_notified_at: step > 0 ? new Date().toISOString() : null,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error } = await supabase
+    .from('critical_alert_states')
+    .upsert(payload, { onConflict: 'user_id,resource,direction' });
+
+  if (error) {
+    throw error;
+  }
 }
 
 /**
@@ -289,10 +345,14 @@ async function checkResourceAlerts(resource, alerts, broadcastUsers = []) {
         if (resolvedDirection === 'above' && Number(stats.current_price) <= resetPrice) {
           targetState.step = 0;
           updates.last_notified_target_at = null;
+          updates.last_notified_target_step = 0;
+          clearAlertThrottle(`${alert.user_id}:${resource}:${alertType}:${targetPrice}:step:`);
         }
         if (resolvedDirection === 'below' && Number(stats.current_price) >= resetPrice) {
           targetState.step = 0;
           updates.last_notified_target_at = null;
+          updates.last_notified_target_step = 0;
+          clearAlertThrottle(`${alert.user_id}:${resource}:${alertType}:${targetPrice}:step:`);
         }
 
         const step = getTargetStep(stats.current_price, targetPrice, resolvedDirection);
@@ -309,20 +369,25 @@ async function checkResourceAlerts(resource, alerts, broadcastUsers = []) {
 
             targetState.step = step;
             updates.last_notified_target_at = now.toISOString();
+            updates.last_notified_target_step = step;
           }
         }
       } else {
-        const state = getOrInitPercentState(alert.id, alert);
+        const state = getOrInitPercentState(alert.id, alert, currentPct);
         const riseReset = getPercentResetThreshold(thresholdHigh, 'rise');
         const fallReset = getPercentResetThreshold(thresholdLow, 'fall');
 
         if (currentPct <= riseReset && state.riseStep !== 0) {
           state.riseStep = 0;
           updates.last_notified_rise_at = null;
+          updates.last_notified_rise_step = 0;
+          clearAlertThrottle(`${alert.user_id}:${resource}:rise:${thresholdHigh}:step:`);
         }
         if (currentPct >= fallReset && state.fallStep !== 0) {
           state.fallStep = 0;
           updates.last_notified_fall_at = null;
+          updates.last_notified_fall_step = 0;
+          clearAlertThrottle(`${alert.user_id}:${resource}:fall:${thresholdLow}:step:`);
         }
 
         const riseStep = getPercentStep(currentPct, thresholdHigh, 'rise');
@@ -340,7 +405,9 @@ async function checkResourceAlerts(resource, alerts, broadcastUsers = []) {
             state.riseStep = riseStep;
             state.fallStep = 0;
             updates.last_notified_rise_at = now.toISOString();
+            updates.last_notified_rise_step = riseStep;
             updates.last_notified_fall_at = null;
+            updates.last_notified_fall_step = 0;
           }
         } else if (fallStep > state.fallStep) {
           const runtimeThrottleKey = `${alert.user_id}:${resource}:fall:${thresholdLow}:step:${fallStep}`;
@@ -354,7 +421,9 @@ async function checkResourceAlerts(resource, alerts, broadcastUsers = []) {
             state.fallStep = fallStep;
             state.riseStep = 0;
             updates.last_notified_fall_at = now.toISOString();
+            updates.last_notified_fall_step = fallStep;
             updates.last_notified_rise_at = null;
+            updates.last_notified_rise_step = 0;
           }
         }
       }
@@ -486,15 +555,38 @@ async function processCriticalAlerts(resource, stats, currentPct, broadcastUsers
   if (currentPct >= CRITICAL_THRESHOLD_PCT) directions.push('up');
   if (currentPct <= -CRITICAL_THRESHOLD_PCT) directions.push('down');
 
+  let persistedStates = new Map();
+  try {
+    persistedStates = await loadCriticalStates(resource, eligibleUsers.map(user => user.userId));
+  } catch (error) {
+    logger.error(`[AlertEngine] Failed loading persisted critical states for ${resource}: ${error.message}`);
+    recordError('alertEngine.loadCriticalStates', error.message);
+    if (String(error.message || '').includes('critical_alert_states')) {
+      throw new Error('Database migration required for critical alert state persistence');
+    }
+  }
+
   for (const user of eligibleUsers) {
     for (const direction of ['up', 'down']) {
-      const state = getCriticalState(user.userId, resource, direction);
-      if (direction === 'up' && currentPct < CRITICAL_RESET_PCT) state.step = 0;
-      if (direction === 'down' && currentPct > -CRITICAL_RESET_PCT) state.step = 0;
+      const persistedStep = persistedStates.get(`${user.userId}:${direction}`) || 0;
+      const state = getCriticalState(user.userId, resource, direction, persistedStep);
+      if (persistedStep > state.step) {
+        state.step = persistedStep;
+      }
+
+      const shouldReset = (direction === 'up' && currentPct <= CRITICAL_RESET_PCT)
+        || (direction === 'down' && currentPct >= -CRITICAL_RESET_PCT);
+
+      if (shouldReset && state.step !== 0) {
+        state.step = 0;
+        clearAlertThrottle(`${user.userId}:${resource}:critical:${direction}:step:`);
+        await persistCriticalState(user.userId, resource, direction, 0, currentPct);
+      }
     }
 
     for (const direction of directions) {
-      const state = getCriticalState(user.userId, resource, direction);
+      const persistedStep = persistedStates.get(`${user.userId}:${direction}`) || 0;
+      const state = getCriticalState(user.userId, resource, direction, persistedStep);
       const magnitude = Math.abs(currentPct);
       const step = 1 + Math.floor((magnitude - CRITICAL_THRESHOLD_PCT) / CRITICAL_STEP_PCT);
       if (step <= state.step) continue;
@@ -507,6 +599,7 @@ async function processCriticalAlerts(resource, stats, currentPct, broadcastUsers
         await sendNtfyCriticalAlert(user.userId, resource, currentPct, step, user.language || 'es');
       }
       state.step = step;
+      await persistCriticalState(user.userId, resource, direction, step, currentPct);
     }
   }
 }

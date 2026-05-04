@@ -1,5 +1,5 @@
 const PROMO_COOLDOWN_MS = 10 * 60 * 1000;
-const ALERT_THROTTLE_MS = 60 * 60 * 1000;
+const ALERT_THROTTLE_MS = 24 * 60 * 60 * 1000;
 
 const promoCooldowns = new Map();
 const alertThrottle = new Map();
@@ -42,6 +42,19 @@ function shouldThrottleAlert(key, cooldownMs = ALERT_THROTTLE_MS) {
   return false;
 }
 
+function clearAlertThrottle(prefix) {
+  const normalizedPrefix = String(prefix || '');
+  if (!normalizedPrefix) return 0;
+  let removed = 0;
+  for (const key of [...alertThrottle.keys()]) {
+    if (key.startsWith(normalizedPrefix)) {
+      alertThrottle.delete(key);
+      removed += 1;
+    }
+  }
+  return removed;
+}
+
 function recordError(source, message = '') {
   errorEvents.push({ ts: nowMs(), source: String(source || 'unknown'), message: String(message || '') });
   prune(errorEvents);
@@ -67,6 +80,7 @@ module.exports = {
   canSendPromo,
   markPromoSent,
   shouldThrottleAlert,
+  clearAlertThrottle,
   recordError,
   getRuntimeHealthSnapshot,
 };
