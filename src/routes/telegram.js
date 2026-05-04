@@ -47,7 +47,7 @@ const {
 } = require('../services/runtimeStatsService');
 
 const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
-const OWNER_TELEGRAM_ID = '1166287745';
+const OWNER_TELEGRAM_ID = String(process.env.OWNER_TELEGRAM_ID || '1166287745');
 
 /**
  * Fire-and-forget Telegram sender (for simple responses)
@@ -1639,7 +1639,7 @@ async function processPay(chatId) {
 // ============================================
 
 router.get('/test', async (req, res) => {
-  const ok = await sendTelegramAwait('1166287745', '🐣 Test from SFL Watcher API!');
+  const ok = await sendTelegramAwait(OWNER_TELEGRAM_ID, '🐣 Test from SFL Watcher API!');
   res.json({ ok });
 });
 
