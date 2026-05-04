@@ -3,7 +3,7 @@ const router = express.Router();
 const logger = require('../utils/logger');
 const supabase = require('../lib/supabase');
 const { generateChartBuffer, generateChartDataUrl } = require('../services/chartService');
-const { getResourceHistory, getResourceStats, getAllPrices } = require('../services/priceFetcher');
+const { getResourceHistory, getResourceStats, getAllPrices, getAvailableResources } = require('../services/priceFetcher');
 const { getUserNtfyTopic, sendNtfyNotification } = require('../services/ntfyService');
 const { sendTelegramMessage } = require('../services/telegramService');
 const {
@@ -48,7 +48,6 @@ const {
 
 const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
 const OWNER_TELEGRAM_ID = '1166287745';
-const ALL_RESOURCES = ['apple','artichoke','banana','barley','beetroot','blueberry','broccoli','bumpkin emblem','cabbage','carrot','cauliflower','celestine','chewed bone','corn','crimstone','dewberry','duskberry','egg','eggplant','feather','frost pebble','goblin emblem','gold','grape','heart leaf','honey','iron','kale','leather','lemon','lunara','merino wool','milk','moonfur','nightshade emblem','obsidian','olive','onion','orange','parsnip','pepper','potato','pumpkin','radish','rhubarb','ribbon','rice','ruffroot','soybean','stone','sunflorian emblem','sunflower','tomato','turnip','wheat','wild grass','wood','wool','yam','zucchini'];
 
 /**
  * Fire-and-forget Telegram sender (for simple responses)
@@ -146,6 +145,32 @@ function buildDeleteAlertKeyboard(alerts = []) {
 function formatDurationMinutes(ms) {
   const minutes = Math.ceil(ms / 60000);
   return `${minutes} min`;
+}
+
+async function getKnownResources(forceRefresh = false) {
+  return getAvailableResources(7, forceRefresh);
+}
+
+async function assertKnownResource(resource, locale) {
+  const normalized = String(resource || '').trim().toLowerCase();
+  const resources = await getKnownResources();
+  if (resources.includes(normalized)) {
+    return { ok: true, resource: normalized, resources };
+  }
+  return {
+    ok: false,
+    resource: normalized,
+    resources,
+    message: pick(
+      locale,
+      `❌ El recurso <b>${escapeHtml(normalized || '?')}</b> no existe aún en snapshots recientes. Usa /list para ver los disponibles.`,
+      `❌ Resource <b>${escapeHtml(normalized || '?')}</b> does not exist in recent snapshots yet. Use /list to see available ones.`
+    )
+  };
+}
+
+function joinResourceTokens(tokens = []) {
+  return tokens.join(' ').trim().toLowerCase();
 }
 
 /**
@@ -474,9 +499,9 @@ router.post('/webhook', async (req, res) => {
         '📈 <b>COMANDOS DE PRECIO</b>\n' +
         '━━━━━━━━━━━━━━━━━━━━\n\n' +
         '/price &lt;resource&gt; - Precio de un recurso (ej. /price wood)\n' +
-        '/priceall - Precios de los 60 recursos\n' +
+        '/priceall - Precios de todos los recursos disponibles\n' +
         '/graph &lt;resource&gt; - Gráfica del recurso (ej. /graph stone)\n' +
-        '/list - Lista de los 60 recursos\n\n' +
+        '/list - Lista dinámica de recursos detectados\n\n' +
         '━━━━━━━━━━━━━━━━━━━━\n' +
         '🔔 <b>COMANDOS DE ALERTAS</b>\n' +
         '━━━━━━━━━━━━━━━━━━━━\n\n' +
@@ -510,9 +535,9 @@ router.post('/webhook', async (req, res) => {
         '📈 <b>PRICE COMMANDS</b>\n' +
         '━━━━━━━━━━━━━━━━━━━━\n\n' +
         '/price &lt;resource&gt; - Price info (e.g. /price wood)\n' +
-        '/priceall - All 60 resource prices\n' +
+        '/priceall - Prices for all available resources\n' +
         '/graph &lt;resource&gt; - Chart image (e.g. /graph stone)\n' +
-        '/list - List all 60 resources\n\n' +
+        '/list - Dynamic list of detected resources\n\n' +
         '━━━━━━━━━━━━━━━━━━━━\n' +
         '🔔 <b>ALERT COMMANDS</b>\n' +
         '━━━━━━━━━━━━━━━━━━━━\n\n' +
@@ -548,12 +573,13 @@ router.post('/webhook', async (req, res) => {
   else if (command === '/list') {
     const blocked = await checkSubscription(chatId);
     if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
-    await sendTelegramAwait(chatId, `${pick(locale, '📋 <b>60 recursos</b>', '📋 <b>60 resources</b>')}\n${ALL_RESOURCES.join(', ')}`);
+    const resources = await getKnownResources(true);
+    await sendTelegramAwait(chatId, `${pick(locale, `📋 <b>${resources.length} recursos detectados</b>`, `📋 <b>${resources.length} detected resources</b>`)}\n${resources.join(', ')}`);
   }
   else if (command === '/price') {
     const blocked = await checkSubscription(chatId);
     if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
-    const resource = parts.length > 1 ? parts[1].toLowerCase() : null;
+    const resource = parts.length > 1 ? joinResourceTokens(parts.slice(1)) : null;
     if (!resource) {
       await sendTelegramAwait(chatId, '❌ Usage: /price &lt;resource&gt;\nExample: /price yam');
       res.json({ ok: true });
@@ -569,7 +595,7 @@ router.post('/webhook', async (req, res) => {
   else if (command === '/graph' || command === '/graph@sflwatcher_bot') {
     const blocked = await checkSubscription(chatId);
     if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
-    const resource = parts.length > 1 ? parts[1].toLowerCase() : null;
+    const resource = parts.length > 1 ? joinResourceTokens(parts.slice(1)) : null;
     if (!resource) {
       await sendTelegramAwait(chatId, pick(locale, '❌ Uso: /graph &lt;resource&gt;\nEjemplo: /graph yam', '❌ Usage: /graph &lt;resource&gt;\nExample: /graph yam'));
       res.json({ ok: true });
@@ -608,7 +634,7 @@ router.post('/webhook', async (req, res) => {
   else if (command === '/removealert') {
     const blocked = await checkSubscription(chatId);
     if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
-    const resource = parts.length > 1 ? parts[1].toLowerCase() : null;
+    const resource = parts.length > 1 ? joinResourceTokens(parts.slice(1)) : null;
     await processRemoveAlert(chatId, resource);
   }
   else if (command === '/alertall' || command === '/setall') {
@@ -678,15 +704,22 @@ router.post('/webhook', async (req, res) => {
 async function processPriceSimple(chatId, resource) {
   try {
     const locale = await getLocale(chatId);
-    const stats = await getResourceStats(resource);
-
-    if (!stats) {
-      await sendTelegramAwait(chatId, pick(locale, `❌ No hay datos para ${resource}.\nEspera a que el cron recoja más información.`, `❌ No data for ${resource}.\nWait for cron to collect more data.`));
+    const resourceCheck = await assertKnownResource(resource, locale);
+    if (!resourceCheck.ok) {
+      await sendTelegramAwait(chatId, resourceCheck.message);
       return;
     }
 
-    await sendTelegramAwait(chatId, formatGraphCaption(resource, stats, locale), {
-      reply_markup: buildQuickAlertKeyboard(resource),
+    const normalizedResource = resourceCheck.resource;
+    const stats = await getResourceStats(normalizedResource);
+
+    if (!stats) {
+      await sendTelegramAwait(chatId, pick(locale, `❌ No hay datos para ${normalizedResource}.\nEspera a que el cron recoja más información.`, `❌ No data for ${normalizedResource}.\nWait for cron to collect more data.`));
+      return;
+    }
+
+    await sendTelegramAwait(chatId, formatGraphCaption(normalizedResource, stats, locale), {
+      reply_markup: buildQuickAlertKeyboard(normalizedResource),
     });
   } catch (error) {
     logger.error('[price] error: ' + error.message);
@@ -695,10 +728,37 @@ async function processPriceSimple(chatId, resource) {
   }
 }
 
+async function processAllPrices(chatId) {
+  try {
+    const locale = await getLocale(chatId);
+    const rows = await getAllPrices();
+    if (!rows || rows.length === 0) {
+      await sendTelegramAwait(chatId, pick(locale, '❌ No hay snapshots recientes para mostrar precios.', '❌ No recent snapshots available to show prices.'));
+      return;
+    }
+
+    const lines = rows
+      .sort((a, b) => a.resource.localeCompare(b.resource))
+      .map(row => `• <b>${escapeHtml(row.resource)}</b>: ${formatTrimmed(row.current_price, 9)} (${formatSignedPercent(row.percent_vs_avg)})`);
+
+    await sendTelegramAwait(chatId, `${pick(locale, `📊 <b>${rows.length} recursos con precio reciente</b>`, `📊 <b>${rows.length} resources with recent prices</b>`)}\n\n${lines.join('\n')}`);
+  } catch (error) {
+    logger.error('[priceall] error: ' + error.message);
+    recordError('telegram.processAllPrices', error.message);
+    await sendTelegramAwait(chatId, `Error: ${error.message}`);
+  }
+}
+
 async function processGraph(chatId, resource) {
   try {
     const crypto = require('crypto');
     const locale = await getLocale(chatId);
+    const resourceCheck = await assertKnownResource(resource, locale);
+    if (!resourceCheck.ok) {
+      await sendTelegramAwait(chatId, resourceCheck.message);
+      return;
+    }
+    resource = resourceCheck.resource;
 
     logger.info('[graph] start', { chatId, resource });
     const stats = await getResourceStats(resource);
@@ -775,11 +835,13 @@ async function processGraph(chatId, resource) {
 
 async function processDebug(chatId) {
   try {
-    const { getResourceHistory } = require('../services/priceFetcher');
+    const { getResourceHistory, getAvailableResources } = require('../services/priceFetcher');
     const { generateChartUrl } = require('../services/chartService');
-    const history = await getResourceHistory('yam', 90);
-    const chartUrl = generateChartUrl('yam', history);
-    await sendTelegramAwait(chatId, `🔧 Debug:\nHistory: ${history.length} points\nURL: ${chartUrl.length} chars`);
+    const resources = await getAvailableResources(7, true);
+    const sample = resources.includes('salt') ? 'salt' : (resources[0] || 'yam');
+    const history = await getResourceHistory(sample, 90);
+    const chartUrl = generateChartUrl(sample, history);
+    await sendTelegramAwait(chatId, `🔧 Debug:\nResource: ${sample}\nHistory: ${history.length} points\nURL: ${chartUrl.length} chars`);
   } catch (error) {
     logger.error('[debug] error: ' + error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
@@ -825,9 +887,9 @@ async function processAlertConfig(chatId, input, isListMode) {
       return;
     }
 
-    const resource = tokens[0].toLowerCase();
-    const rawHigh = parseFloat(tokens[1]);
-    const rawLow = parseFloat(tokens[2]);
+    const resource = joinResourceTokens(tokens.slice(0, -2));
+    const rawHigh = parseFloat(tokens[tokens.length - 2]);
+    const rawLow = parseFloat(tokens[tokens.length - 1]);
     if (isNaN(rawHigh) || isNaN(rawLow)) {
       await sendTelegramAwait(chatId, pick(locale, '❌ Los porcentajes deben ser números.', '❌ Percentages must be numbers.'));
       return;
@@ -835,11 +897,17 @@ async function processAlertConfig(chatId, input, isListMode) {
 
     const thresholdHigh = Math.abs(rawHigh);
     const thresholdLow = -Math.abs(rawLow);
+    const resourceCheck = await assertKnownResource(resource, locale);
+    if (!resourceCheck.ok) {
+      await sendTelegramAwait(chatId, resourceCheck.message);
+      return;
+    }
+    const normalizedResource = resourceCheck.resource;
     const { data: existing } = await supabase
       .from('user_alerts')
       .select('*')
       .eq('user_id', chatId)
-      .eq('resource', resource)
+      .eq('resource', normalizedResource)
       .eq('alert_type', 'dual')
       .eq('enabled', true)
       .maybeSingle();
@@ -853,18 +921,20 @@ async function processAlertConfig(chatId, input, isListMode) {
           threshold_low: thresholdLow,
           updated_at: new Date().toISOString(),
           last_notified_rise_at: null,
+          last_notified_rise_step: 0,
           last_notified_fall_at: null,
+          last_notified_fall_step: 0,
         })
         .eq('id', existing.id);
       if (error) throw error;
     } else {
       const { error } = await supabase
         .from('user_alerts')
-        .insert({ user_id: chatId, resource, alert_type: 'dual', threshold_high: thresholdHigh, threshold_low: thresholdLow, enabled: true });
+        .insert({ user_id: chatId, resource: normalizedResource, alert_type: 'dual', threshold_high: thresholdHigh, threshold_low: thresholdLow, enabled: true });
       if (error) throw error;
     }
 
-    await sendTelegramAwait(chatId, pick(locale, `✅ Alerta guardada para <b>${resource}</b>\n▲ Sube: +${thresholdHigh}% | ▼ Baja: ${thresholdLow}%`, `✅ Alert saved for <b>${resource}</b>\n▲ Rise: +${thresholdHigh}% | ▼ Fall: ${thresholdLow}%`));
+    await sendTelegramAwait(chatId, pick(locale, `✅ Alerta guardada para <b>${normalizedResource}</b>\n▲ Sube: +${thresholdHigh}% | ▼ Baja: ${thresholdLow}%`, `✅ Alert saved for <b>${normalizedResource}</b>\n▲ Rise: +${thresholdHigh}% | ▼ Fall: ${thresholdLow}%`));
   } catch (error) {
     logger.error('[alert] error: ' + error.message);
     await sendTelegramAwait(chatId, `Error: ${error.message}`);
@@ -880,14 +950,15 @@ async function processRemoveAlert(chatId, resource) {
       return;
     }
 
+    const normalizedResource = joinResourceTokens(String(resource).split(/\s+/));
     const { error } = await supabase
       .from('user_alerts')
       .delete()
       .eq('user_id', chatId)
-      .eq('resource', resource.toLowerCase());
+      .eq('resource', normalizedResource);
 
     if (error) throw error;
-    await sendTelegramAwait(chatId, `🗑️ Alert for <b>${resource}</b> permanently deleted.`);
+    await sendTelegramAwait(chatId, `🗑️ Alert for <b>${normalizedResource}</b> permanently deleted.`);
 
   } catch (error) {
     logger.error('[removealert] error: ' + error.message);
@@ -904,7 +975,7 @@ async function processSetAllAlerts(chatId, input) {
       await sendTelegramAwait(chatId,
         '❌ Usage: /alertall &lt;high%&gt; &lt;low%&gt; [keep]\n' +
         'Example: /alertall 20 15\n' +
-        '→ Set alerts for ALL 60 resources at +20% (rise) OR -15% (fall)\n\n' +
+        '→ Set alerts for all detected resources at +20% (rise) OR -15% (fall)\n\n' +
         'Add "keep" to skip resources that already have alerts:\n' +
         '/alertall 20 15 keep\n' +
         '→ Same as above, but preserves existing alerts.'
@@ -921,9 +992,7 @@ async function processSetAllAlerts(chatId, input) {
       return;
     }
 
-    // Use hardcoded list of all 60 resources
-    const allResources = ['apple','artichoke','banana','barley','beetroot','blueberry','broccoli','bumpkin emblem','cabbage','carrot','cauliflower','celestine','chewed bone','corn','crimstone','dewberry','duskberry','egg','eggplant','feather','frost pebble','goblin emblem','gold','grape','heart leaf','honey','iron','kale','leather','lemon','lunara','merino wool','milk','moonfur','nightshade emblem','obsidian','olive','onion','orange','parsnip','pepper','potato','pumpkin','radish','rhubarb','ribbon','rice','ruffroot','soybean','stone','sunflorian emblem','sunflower','tomato','turnip','wheat','wild grass','wood','wool','yam','zucchini'];
-
+    const allResources = await getKnownResources(true);
     const now = new Date().toISOString();
 
     // OPTIMIZATION: Batch query - get all existing alerts for this user in ONE query
@@ -960,7 +1029,9 @@ async function processSetAllAlerts(chatId, input) {
             threshold_low: thresholdLow,
             updated_at: now,
             last_notified_rise_at: null,
-            last_notified_fall_at: null
+            last_notified_rise_step: 0,
+            last_notified_fall_at: null,
+            last_notified_fall_step: 0
           })
           .eq('id', id)
       );
@@ -1025,8 +1096,9 @@ async function processRemoveAllAlerts(chatId) {
 async function processPriceTargetAlert(chatId, args) {
   try {
     const locale = await getLocale(chatId);
-    const [resourceRaw, directionRaw, priceRaw] = args;
-    const resource = String(resourceRaw || '').toLowerCase();
+    const priceRaw = args[args.length - 1];
+    const directionRaw = args[args.length - 2];
+    const resource = joinResourceTokens(args.slice(0, -2));
     const direction = String(directionRaw || '').toLowerCase();
     const targetPrice = Number(String(priceRaw || '').replace(',', '.'));
 
@@ -1035,12 +1107,19 @@ async function processPriceTargetAlert(chatId, args) {
       return;
     }
 
+    const resourceCheck = await assertKnownResource(resource, locale);
+    if (!resourceCheck.ok) {
+      await sendTelegramAwait(chatId, resourceCheck.message);
+      return;
+    }
+    const normalizedResource = resourceCheck.resource;
+
     const alertType = direction === 'above' ? 'price_above' : 'price_below';
     const { data: existing } = await supabase
       .from('user_alerts')
       .select('id')
       .eq('user_id', chatId)
-      .eq('resource', resource)
+      .eq('resource', normalizedResource)
       .eq('alert_type', alertType)
       .maybeSingle();
 
@@ -1053,6 +1132,7 @@ async function processPriceTargetAlert(chatId, args) {
           enabled: true,
           updated_at: new Date().toISOString(),
           last_notified_target_at: null,
+          last_notified_target_step: 0,
         })
         .eq('id', existing.id);
       if (error) throw error;
@@ -1061,7 +1141,7 @@ async function processPriceTargetAlert(chatId, args) {
         .from('user_alerts')
         .insert({
           user_id: chatId,
-          resource,
+          resource: normalizedResource,
           alert_type: alertType,
           target_price: targetPrice,
           target_direction: direction,
@@ -1070,7 +1150,7 @@ async function processPriceTargetAlert(chatId, args) {
       if (error) throw error;
     }
 
-    await sendTelegramAwait(chatId, pick(locale, `✅ Alerta objetivo guardada para <b>${resource}</b>\n🎯 ${direction} ${formatTrimmed(targetPrice, 9)}`, `✅ Target alert saved for <b>${resource}</b>\n🎯 ${direction} ${formatTrimmed(targetPrice, 9)}`));
+    await sendTelegramAwait(chatId, pick(locale, `✅ Alerta objetivo guardada para <b>${normalizedResource}</b>\n🎯 ${direction} ${formatTrimmed(targetPrice, 9)}`, `✅ Target alert saved for <b>${normalizedResource}</b>\n🎯 ${direction} ${formatTrimmed(targetPrice, 9)}`));
   } catch (error) {
     logger.error('[pricealert] error: ' + error.message);
     const locale = await getLocale(chatId);

@@ -2,6 +2,8 @@ const supabase = require('../lib/supabase');
 const logger = require('../utils/logger');
 
 const SFL_API_URL = process.env.SFL_API_URL || 'https://sfl.world/api/v1';
+const RESOURCE_CACHE_TTL_MS = 5 * 60 * 1000;
+let resourceCache = { ts: 0, items: [] };
 
 /**
  * Fetch prices from SFL API and save to database
@@ -176,9 +178,48 @@ async function getResourceHistory(resource, days = 30) {
   return rows;
 }
 
+async function getAvailableResources(days = 7, forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && resourceCache.items.length > 0 && (now - resourceCache.ts) < RESOURCE_CACHE_TTL_MS) {
+    return resourceCache.items;
+  }
+
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const pageSize = 1000;
+  const resources = new Set();
+  let from = 0;
+
+  while (true) {
+    const to = from + pageSize - 1;
+    const { data, error } = await supabase
+      .from('price_snapshots')
+      .select('resource, created_at')
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .range(from, to);
+
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+
+    for (const row of data) {
+      if (row?.resource) resources.add(String(row.resource).toLowerCase());
+    }
+
+    if (data.length < pageSize) break;
+    from += pageSize;
+
+    if (resources.size >= 500) break;
+  }
+
+  const items = [...resources].sort((a, b) => a.localeCompare(b));
+  resourceCache = { ts: now, items };
+  return items;
+}
+
 module.exports = {
   fetchPrices,
   getResourceStats,
   getAllPrices,
-  getResourceHistory
+  getResourceHistory,
+  getAvailableResources,
 };
