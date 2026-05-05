@@ -528,8 +528,8 @@ router.post('/webhook', async (req, res) => {
   if (command === '/start') {
     await sendTelegramAwait(chatId,
       pick(locale,
-        '🦉 <b>SFL Watcher</b>\n\n📊 <b>Precios y gráficas</b>\n/price &lt;resource&gt; • /priceall • /graph &lt;resource&gt; • /list\n\n🔔 <b>Alertas</b>\n/alerts • /alert &lt;res&gt; &lt;sube%&gt; &lt;baja%&gt; • /pricealert &lt;res&gt; &lt;above|below&gt; &lt;precio&gt;\n\n🌐 <b>Idioma</b>\n/language es • /language en\n\nUsa /help para ver todo.',
-        '🦉 <b>SFL Watcher</b>\n\n📊 <b>Prices and charts</b>\n/price &lt;resource&gt; • /priceall • /graph &lt;resource&gt; • /list\n\n🔔 <b>Alerts</b>\n/alerts • /alert &lt;res&gt; &lt;rise%&gt; &lt;fall%&gt; • /pricealert &lt;res&gt; &lt;above|below&gt; &lt;price&gt;\n\n🌐 <b>Language</b>\n/language es • /language en\n\nUse /help to see everything.'
+        '🦉 <b>SFL Watcher</b>\n\n🧪 <b>Beta gratis activa</b>\nSin pago ni wallet por ahora.\n\n📊 <b>Precios y gráficas</b>\n/price &lt;resource&gt; • /priceall • /graph &lt;resource&gt; • /list\n\n🔔 <b>Alertas</b>\n/alerts • /alert &lt;res&gt; &lt;sube%&gt; &lt;baja%&gt; • /pricealert &lt;res&gt; &lt;above|below&gt; &lt;precio&gt; • /criticalalerts on|off\n\n📱 <b>Notificaciones</b>\n/ntfy • /ntfytest • /ntfygraph on|off\n\n🌐 <b>Idioma</b>\n/language es • /language en\n\nUsa /help para ver todo.',
+        '🦉 <b>SFL Watcher</b>\n\n🧪 <b>Free beta is active</b>\nNo payment or wallet required for now.\n\n📊 <b>Prices and charts</b>\n/price &lt;resource&gt; • /priceall • /graph &lt;resource&gt; • /list\n\n🔔 <b>Alerts</b>\n/alerts • /alert &lt;res&gt; &lt;rise%&gt; &lt;fall%&gt; • /pricealert &lt;res&gt; &lt;above|below&gt; &lt;price&gt; • /criticalalerts on|off\n\n📱 <b>Notifications</b>\n/ntfy • /ntfytest • /ntfygraph on|off\n\n🌐 <b>Language</b>\n/language es • /language en\n\nUse /help to see everything.'
       )
     );
   }
@@ -537,13 +537,16 @@ router.post('/webhook', async (req, res) => {
     await sendTelegramAwait(chatId,
       pick(locale,
         '📊 <b>SFL Watcher - Ayuda</b>\n\n' +
+        '🧪 <b>ESTADO ACTUAL</b>\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n\n' +
+        'La beta está gratis por ahora.\n' +
+        'Los comandos de wallet/pago están ocultos temporalmente.\n\n' +
         '📈 <b>COMANDOS DE PRECIO</b>\n' +
         '━━━━━━━━━━━━━━━━━━━━\n\n' +
         '/price &lt;resource&gt; - Precio de un recurso (ej. /price wood)\n' +
         '/priceall - Precios de todos los recursos disponibles\n' +
         '/graph &lt;resource&gt; - Gráfica del recurso (ej. /graph stone)\n' +
         '/list - Lista dinámica de recursos detectados\n\n' +
-        '━━━━━━━━━━━━━━━━━━━━\n' +
         '🔔 <b>COMANDOS DE ALERTAS</b>\n' +
         '━━━━━━━━━━━━━━━━━━━━\n\n' +
         '/alerts - Ver todas tus alertas activas\n' +
@@ -560,26 +563,28 @@ router.post('/webhook', async (req, res) => {
         '/alertall 20 15 keep → igual, manteniendo alertas existentes\n' +
         '/pricealert milk below 0.01 → alerta si milk baja de 0.01\n' +
         '/criticalalerts off → desactiva alertas críticas automáticas\n\n' +
-        '🌐 <b>IDIOMA</b>\n' +
-        '━━━━━━━━━━━━━━━━━━━━\n\n' +
-        '/language es - Cambiar a español\n' +
-        '/language en - Cambiar a inglés\n\n' +
-        '━━━━━━━━━━━━━━━━━━━━\n' +
         '📱 <b>NOTIFICACIONES NTFY</b>\n' +
         '━━━━━━━━━━━━━━━━━━━━\n\n' +
         '/ntfy - Configurar NTFY para el teléfono\n' +
         '/ntfytest - Enviar notificación de prueba\n' +
         '/ntfygraph on/off - Activar o desactivar gráficas en NTFY\n' +
         '/ntfystatus - Ver estado de tu configuración NTFY\n\n' +
+        '🌐 <b>IDIOMA</b>\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n\n' +
+        '/language es - Cambiar a español\n' +
+        '/language en - Cambiar a inglés\n\n' +
         '📋 <b>Nota:</b> las notificaciones NTFY son públicas. NO compartas tu topic.',
         '📊 <b>SFL Watcher - Help</b>\n\n' +
+        '🧪 <b>CURRENT STATUS</b>\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n\n' +
+        'The beta is free right now.\n' +
+        'Wallet/payment commands are temporarily hidden.\n\n' +
         '📈 <b>PRICE COMMANDS</b>\n' +
         '━━━━━━━━━━━━━━━━━━━━\n\n' +
         '/price &lt;resource&gt; - Price info (e.g. /price wood)\n' +
         '/priceall - Prices for all available resources\n' +
         '/graph &lt;resource&gt; - Chart image (e.g. /graph stone)\n' +
         '/list - Dynamic list of detected resources\n\n' +
-        '━━━━━━━━━━━━━━━━━━━━\n' +
         '🔔 <b>ALERT COMMANDS</b>\n' +
         '━━━━━━━━━━━━━━━━━━━━\n\n' +
         '/alerts - View all your active alerts\n' +
@@ -596,17 +601,16 @@ router.post('/webhook', async (req, res) => {
         '/alertall 20 15 keep → same, keeping existing alerts\n' +
         '/pricealert milk below 0.01 → alert if milk drops below 0.01\n' +
         '/criticalalerts off → disable automatic critical alerts\n\n' +
-        '🌐 <b>LANGUAGE</b>\n' +
-        '━━━━━━━━━━━━━━━━━━━━\n\n' +
-        '/language es - Switch to Spanish\n' +
-        '/language en - Switch to English\n\n' +
-        '━━━━━━━━━━━━━━━━━━━━\n' +
         '📱 <b>NTFY PHONE NOTIFICATIONS</b>\n' +
         '━━━━━━━━━━━━━━━━━━━━\n\n' +
         '/ntfy - Setup NTFY app for phone notifications\n' +
         '/ntfytest - Send test notification to phone\n' +
         '/ntfygraph on/off - Enable/disable graph images in NTFY\n' +
         '/ntfystatus - Check your NTFY settings\n\n' +
+        '🌐 <b>LANGUAGE</b>\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n\n' +
+        '/language es - Switch to Spanish\n' +
+        '/language en - Switch to English\n\n' +
         '📋 <b>Note:</b> NTFY notifications are public. DO NOT share your topic.'
       )
     );
