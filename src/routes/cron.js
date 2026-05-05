@@ -146,7 +146,7 @@ async function checkExpiringSubscriptions() {
 
 /**
  * GET /api/cron/fetch-prices
- * Vercel Cron: runs every 15 minutes
+ * External scheduler endpoint (cron-job.org recommended)
  * Fetches latest prices from SFL API and checks alerts
  */
 router.get('/fetch-prices', async (req, res) => {

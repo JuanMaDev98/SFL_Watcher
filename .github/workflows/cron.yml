@@ -1,10 +1,6 @@
-name: SFL Watcher - Price Fetch Cron
+name: SFL Watcher - Manual Price Fetch Trigger
 
 on:
-  schedule:
-    # Every 15 minutes
-    - cron: '*/15 * * * *'
-  # Allow manual trigger for testing
   workflow_dispatch:
 
 jobs:

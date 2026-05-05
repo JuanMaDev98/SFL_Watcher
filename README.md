@@ -40,6 +40,7 @@ FCM_PROJECT_ID=your_firebase_project_id
 npm install          # Instalar dependencias
 npm run dev          # Desarrollo local
 npm run deploy       # Deploy a Vercel
+npm test             # Predeploy check mínimo
 ```
 
 ## Database Schema
@@ -48,7 +49,18 @@ El schema está en `/supabase/schema.sql`. Ejecutar en SQL Editor de Supabase.
 
 ## Flujo
 
-1. Cron job cada 15 min fetchea precios de `sfl.world/api/v1/prices`
+1. Un scheduler externo llama `/api/cron/fetch-prices`
 2. Guarda snapshots en `price_snapshots`
 3. Alert engine compara con thresholds de usuarios
-4. Si breach → FCM push notification
+4. Si breach → Telegram / NTFY notification
+
+## Scheduler recomendado
+
+Usar **cron-job.org** como scheduler principal.
+
+Configuración detallada:
+- `docs/CRON_JOB_ORG_SETUP.md`
+
+**Importante:**
+- `vercel.json` no debe contener cron jobs sub-diarios en Vercel Hobby
+- el workflow GitHub de cron quedó solo para disparo manual
