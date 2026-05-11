@@ -569,7 +569,7 @@ router.post('/webhook', async (req, res) => {
         '━━━━━━━━━━━━━━━━━━━━\n\n' +
         '/ntfy - Configurar NTFY para el teléfono\n' +
         '/ntfytest - Enviar notificación de prueba\n' +
-        '/ntfygraph on/off - Activar o desactivar gráficas en NTFY\n' +
+        // '/ntfygraph on/off - Activar o desactivar gráficas en NTFY\n' +
         '/ntfystatus - Ver estado de tu configuración NTFY\n\n' +
         '📋 <b>Nota:</b> las notificaciones NTFY son públicas. NO compartas tu topic.',
         '📊 <b>SFL Watcher - Help</b>\n\n' +
@@ -605,7 +605,7 @@ router.post('/webhook', async (req, res) => {
         '━━━━━━━━━━━━━━━━━━━━\n\n' +
         '/ntfy - Setup NTFY app for phone notifications\n' +
         '/ntfytest - Send test notification to phone\n' +
-        '/ntfygraph on/off - Enable/disable graph images in NTFY\n' +
+        // '/ntfygraph on/off - Enable/disable graph images in NTFY\n' +
         '/ntfystatus - Check your NTFY settings\n\n' +
         '📋 <b>Note:</b> NTFY notifications are public. DO NOT share your topic.'
       )
@@ -703,11 +703,13 @@ router.post('/webhook', async (req, res) => {
     if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
     await processNtfyTest(chatId);
   }
+  /* // ntfygraph temporarily disabled
   else if (command === '/ntfygraph') {
     const blocked = await checkSubscription(chatId);
     if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
     await processNtfyGraph(chatId, parts);
   }
+  */
 
   else if (command === '/ntfystatus') {
     const blocked = await checkSubscription(chatId);
@@ -1468,16 +1470,16 @@ async function processNtfy(chatId) {
     '',
     `Your topic: <code>${topic}</code>`,
     '',
-    '1. Open NTFY app',
+    '1. <a href="https://ntfy.sh/">Download NTFY app</a>',
     `2. Tap "Subscribe" and enter: <code>${topic}</code>`,
     '3. Done! Alerts will arrive as phone notifications.',
     '',
-    '📊 Graph images in NTFY: <b>' + (settings.ntfyGraphEnabled ? 'ON' : 'OFF') + '</b>',
-    'Change with: /ntfygraph on/off',
+    // '📊 Graph images in NTFY: <b>' + (settings.ntfyGraphEnabled ? 'ON' : 'OFF') + '</b>',
+    // 'Change with: /ntfygraph on/off',
     '',
     '🔔 Commands:',
     '/ntfytest - Send test notification',
-    '/ntfygraph on/off - Toggle graph images',
+    // '/ntfygraph on/off - Toggle graph images',
     '/ntfystatus - Check settings'
   ].join('\n');
   
@@ -1563,11 +1565,12 @@ async function processNtfyStatus(chatId) {
     '📱 <b>NTFY Status</b>\n\n' +
     `Topic: <code>${topic}</code>\n` +
     `NTFY enabled: <b>${settings.ntfyEnabled ? 'YES' : 'NO'}</b>\n` +
-    `Graph images: <b>${settings.ntfyGraphEnabled ? 'ON' : 'OFF'}</b>\n\n` +
+    // `Graph images: <b>${settings.ntfyGraphEnabled ? 'ON' : 'OFF'}</b>\n\n` +
+    '\n' +
     'Commands:\n' +
     '/ntfy - Setup instructions\n' +
     '/ntfytest - Send test notification\n' +
-    '/ntfygraph on/off - Toggle graph images\n' +
+    // '/ntfygraph on/off - Toggle graph images\n' +
     '/ntfystatus - This message'
   );
 }

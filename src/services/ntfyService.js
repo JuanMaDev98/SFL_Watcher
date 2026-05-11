@@ -247,14 +247,14 @@ function getNtfyInstructions(topic) {
     '',
     `Your topic: ${topic}`,
     '',
-    '1. Open NTFY app',
+    '1. Download NTFY app: https://ntfy.sh/',
     `2. Tap "Subscribe" and enter: ${topic}`,
     '3. Done! You will receive alerts as phone notifications.',
     '',
     'Commands:',
     '/ntfy - Show setup info',
     '/ntfytest - Send test notification',
-    '/ntfygraph - Toggle graph attachments',
+    // '/ntfygraph - Toggle graph attachments',
     '/ntfystatus - Check your NTFY settings'
   ].join('\n');
 }

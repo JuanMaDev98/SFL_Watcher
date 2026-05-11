@@ -312,6 +312,7 @@ Archivo `CODE_REVIEW.md` contiene review de terceros (Kahel). Los hallazgos más
 *Formato: YYYY-MM-DD — Descripción del cambio (motivo / contexto)*
 
 ### 2026-05-11
+- **Modificación comando `/ntfy`** — Se añadió link clickeable a `https://ntfy.sh/` para que el usuario sepa dónde descargar la app. Se ocultaron todas las referencias a `/ntfygraph` en mensajes de ayuda, `/ntfy`, `/ntfystatus` y webhook handler (comentadas, no eliminadas) porque el comando no está disponible temporalmente.
 - **Creación de este archivo (`CONTEXT.md`)** — Para que asistentes de IA puedan entender el proyecto completo sin re-analizar el código fuente, ahorrando tokens y facilitando el onboarding en distintas máquinas/ sesiones de trabajo.
 
 ---
