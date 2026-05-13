@@ -61,7 +61,6 @@ const TELEGRAM_WEBHOOK_SECRET = String(process.env.TELEGRAM_WEBHOOK_SECRET || ''
 const INTERNAL_API_SECRET = String(process.env.INTERNAL_API_SECRET || '');
 const OPENROUTER_API_KEY = String(process.env.OPENROUTER_API_KEY || '');
 const OPENROUTER_MODEL = String(process.env.OPENROUTER_MODEL || 'openrouter/free');
-const OWNER_TELEGRAM_ID = String(process.env.OWNER_TELEGRAM_ID || '1166287745');
 
 function rejectUnauthorized(res, mode = 'json') {
   if (mode === 'hidden') {
