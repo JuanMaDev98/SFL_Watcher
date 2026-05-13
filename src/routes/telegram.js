@@ -1735,11 +1735,14 @@ async function processFeedbackAnalysis(chatId) {
 
   const prompt = `Project: SFL Watcher is a Telegram bot that monitors resource prices in the Sunflower Land blockchain game (sfl.world). It fetches prices every 15 minutes, stores snapshots in a database, and alerts users when prices cross configurable thresholds via Telegram and NTFY push notifications. It also generates price charts.
 
-Task: Analyze the following user feedback logs and provide a structured summary including:
-1. Most common bugs or issues reported
-2. Most requested features or suggestions
-3. Any critical/urgent issues needing immediate attention
-4. Overall user sentiment
+Task: Analyze the following user feedback logs and provide a structured plain-text summary. IMPORTANT: Do NOT use markdown (#, **, *, etc.) or HTML tags in your response. Use only emojis and plain text. Telegram has limited formatting — keep it simple and readable.
+
+Structure your response like this:
+- Use emojis at the start of each section (e.g., 🔍, 💡, ⚠️, 😊)
+- Use short paragraphs with line breaks (\\n)
+- Do NOT use bold (**text**), italics (*text*), headers (#), or any markup
+- Keep it under 1500 characters total so it fits in a Telegram message
+- If the analysis is too long, summarize more aggressively
 
 Feedback Logs:
 ${logText}`;
