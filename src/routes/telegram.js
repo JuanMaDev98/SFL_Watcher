@@ -59,7 +59,9 @@ const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOK
 const OWNER_TELEGRAM_ID = String(process.env.OWNER_TELEGRAM_ID || '1166287745');
 const TELEGRAM_WEBHOOK_SECRET = String(process.env.TELEGRAM_WEBHOOK_SECRET || '');
 const INTERNAL_API_SECRET = String(process.env.INTERNAL_API_SECRET || '');
-const GEMINI_API_KEY = String(process.env.GEMINI_API_KEY || '');
+const OPENROUTER_API_KEY = String(process.env.OPENROUTER_API_KEY || '');
+const OPENROUTER_MODEL = String(process.env.OPENROUTER_MODEL || 'openrouter/free');
+const OWNER_TELEGRAM_ID = String(process.env.OWNER_TELEGRAM_ID || '1166287745');
 
 function rejectUnauthorized(res, mode = 'json') {
   if (mode === 'hidden') {
@@ -1679,28 +1681,34 @@ async function processFeedbackLogClean(chatId) {
   await sendTelegramAwait(chatId, '✅ All feedback logs have been deleted.');
 }
 
-async function callGemini(prompt) {
-  if (!GEMINI_API_KEY) {
-    throw new Error('GEMINI_API_KEY not configured');
+async function callAI(prompt) {
+  if (!OPENROUTER_API_KEY) {
+    throw new Error('OPENROUTER_API_KEY not configured');
   }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
-  const res = await fetch(url, {
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://sfl-watcher.vercel.app',
+      'X-Title': 'SFL Watcher'
+    },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.3, maxOutputTokens: 2048 }
+      model: OPENROUTER_MODEL,
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 2048,
+      temperature: 0.3
     })
   });
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Gemini API error (${res.status}): ${text}`);
+    throw new Error(`AI API error (${res.status}): ${text}`);
   }
 
   const data = await res.json();
-  return data?.candidates?.[0]?.content?.parts?.[0]?.text || '⚠️ No response from AI.';
+  return data?.choices?.[0]?.message?.content || '⚠️ No response from AI.';
 }
 
 async function processFeedbackAnalysis(chatId) {
@@ -1738,7 +1746,7 @@ Feedback Logs:
 ${logText}`;
 
   try {
-    const analysis = await callGemini(prompt);
+    const analysis = await callAI(prompt);
     const msg = `🤖 <b>Feedback Analysis</b>\n\n${analysis.replace(/\n/g, '\n')}`;
 
     if (msg.length > 4096) {
