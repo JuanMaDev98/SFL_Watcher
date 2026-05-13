@@ -186,6 +186,7 @@ Aplicar en orden: `alerts_table.sql` → `wallet_tables.sql` → `subscription_t
 | `/language es/en` | Cambiar idioma |
 | `/lang` | Alias de language |
 | `/feedback` | Enviar bug, sugerencia o idea (flow multistep) |
+| `/feedbackanalysis` (solo admin) | Analiza todos los logs con IA (Gemini) y devuelve resumen |
 
 **Comandos ocultos** (desactivados por `BETA_FREE_MODE=true`):
 `/connectwallet`, `/wallet`, `/subscribe`, `/status`, `/pay`
@@ -282,6 +283,7 @@ PORT=3000                  # Opcional
 - Se almacena en tabla `user_feedback` en Supabase (id, user_id, message, category, created_at).
 - El admin puede descargar todos los logs con `/feedbacklog` (solo OWNER_TELEGRAM_ID).
 - El admin puede limpiar los logs con `/feedbacklogclean` (solo OWNER_TELEGRAM_ID).
+- El admin puede analizar todos los logs con IA (Gemini 2.0 Flash) via `/feedbackanalysis` (solo OWNER_TELEGRAM_ID).
 
 ---
 
@@ -323,6 +325,7 @@ Archivo `CODE_REVIEW.md` contiene review de terceros (Kahel). Los hallazgos más
 *Formato: YYYY-MM-DD — Descripción del cambio (motivo / contexto)*
 
 ### 2026-05-11
+- **Comando `/feedbackanalysis`** — Se añadió análisis de logs con IA (Gemini 2.0 Flash) para admin. Usa `GEMINI_API_KEY`. Si la respuesta excede 4096 chars se envía como archivo .txt.
 - **Nuevo sistema de feedback** — Se añadió comando `/feedback` para que usuarios envíen bugs, sugerencias o ideas (flow multistep con detección automática de categoría). Se creó tabla `user_feedback` en Supabase (migración `feedback_table.sql`). Comandos admin: `/feedbacklog` (descarga logs) y `/feedbacklogclean` (limpia logs). Solo accesibles para OWNER_TELEGRAM_ID.
 - **Modificación comando `/ntfy`** — Se añadió link clickeable a `https://ntfy.sh/` para que el usuario sepa dónde descargar la app. Se ocultaron todas las referencias a `/ntfygraph` en mensajes de ayuda, `/ntfy`, `/ntfystatus` y webhook handler (comentadas, no eliminadas) porque el comando no está disponible temporalmente.
 - **Creación de este archivo (`CONTEXT.md`)** — Para que asistentes de IA puedan entender el proyecto completo sin re-analizar el código fuente, ahorrando tokens y facilitando el onboarding en distintas máquinas/ sesiones de trabajo.

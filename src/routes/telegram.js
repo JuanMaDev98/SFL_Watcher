@@ -59,6 +59,7 @@ const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOK
 const OWNER_TELEGRAM_ID = String(process.env.OWNER_TELEGRAM_ID || '1166287745');
 const TELEGRAM_WEBHOOK_SECRET = String(process.env.TELEGRAM_WEBHOOK_SECRET || '');
 const INTERNAL_API_SECRET = String(process.env.INTERNAL_API_SECRET || '');
+const GEMINI_API_KEY = String(process.env.GEMINI_API_KEY || '');
 
 function rejectUnauthorized(res, mode = 'json') {
   if (mode === 'hidden') {
@@ -769,6 +770,13 @@ router.post('/webhook', async (req, res) => {
       res.json({ ok: true }); return;
     }
     await processFeedbackLogClean(String(chatId));
+  }
+  else if (command === '/feedbackanalysis' || command === '/feedbackanalisis') {
+    if (String(chatId) !== OWNER_TELEGRAM_ID) {
+      await sendTelegramAwait(chatId, '❌ Command only available for bot owner.');
+      res.json({ ok: true }); return;
+    }
+    await processFeedbackAnalysis(String(chatId));
   }
   // Beta gratis: status/pay desactivados temporalmente.
   else if (command === '/status' || command === '/pay') {
@@ -1669,6 +1677,80 @@ async function processFeedbackLogClean(chatId) {
   }
 
   await sendTelegramAwait(chatId, '✅ All feedback logs have been deleted.');
+}
+
+async function callGemini(prompt) {
+  if (!GEMINI_API_KEY) {
+    throw new Error('GEMINI_API_KEY not configured');
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.3, maxOutputTokens: 2048 }
+    })
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Gemini API error (${res.status}): ${text}`);
+  }
+
+  const data = await res.json();
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text || '⚠️ No response from AI.';
+}
+
+async function processFeedbackAnalysis(chatId) {
+  const { data, error } = await supabase
+    .from('user_feedback')
+    .select('id, user_id, message, category, created_at')
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    logger.error('[feedbackanalysis] DB error: ' + error.message);
+    await sendTelegramAwait(chatId, '❌ Error reading feedback logs.');
+    return;
+  }
+
+  if (!data || data.length === 0) {
+    await sendTelegramAwait(chatId, '📭 No feedback to analyze yet.');
+    return;
+  }
+
+  await sendTelegramAwait(chatId, '🤖 Analyzing feedback with AI... This may take a few seconds.');
+
+  const logText = data.map(f =>
+    `[${f.created_at}] User: ${f.user_id} | Category: ${f.category}\n${f.message}`
+  ).join('\n\n');
+
+  const prompt = `Project: SFL Watcher is a Telegram bot that monitors resource prices in the Sunflower Land blockchain game (sfl.world). It fetches prices every 15 minutes, stores snapshots in a database, and alerts users when prices cross configurable thresholds via Telegram and NTFY push notifications. It also generates price charts.
+
+Task: Analyze the following user feedback logs and provide a structured summary including:
+1. Most common bugs or issues reported
+2. Most requested features or suggestions
+3. Any critical/urgent issues needing immediate attention
+4. Overall user sentiment
+
+Feedback Logs:
+${logText}`;
+
+  try {
+    const analysis = await callGemini(prompt);
+    const msg = `🤖 <b>Feedback Analysis</b>\n\n${analysis.replace(/\n/g, '\n')}`;
+
+    if (msg.length > 4096) {
+      const buffer = Buffer.from(analysis, 'utf-8');
+      await sendDocumentBuffer(chatId, buffer, `📋 AI Feedback Analysis`, `analysis_${Date.now()}.txt`, 'text/plain');
+    } else {
+      await sendTelegramAwait(chatId, msg);
+    }
+  } catch (err) {
+    logger.error('[feedbackanalysis] AI error: ' + err.message);
+    await sendTelegramAwait(chatId, '❌ Failed to analyze feedback: ' + err.message);
+  }
 }
 
 async function processPay(chatId) {
