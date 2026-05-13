@@ -183,8 +183,7 @@ Aplicar en orden: `alerts_table.sql` → `wallet_tables.sql` → `subscription_t
 | `/ntfytest` | Probar NTFY |
 | `/ntfygraph on/off` | Activar/desactivar gráficos en NTFY |
 | `/ntfystatus` | Ver estado de NTFY |
-| `/language es/en` | Cambiar idioma |
-| `/lang` | Alias de language |
+| Comandos en grupos | `/price`, `/priceall`, `/graph`, `/list`, `/help`, `/language` — restringidos a `ALLOWED_GROUP_ID` |
 | `/feedback` | Enviar bug, sugerencia o idea (flow multistep) |
 | `/feedbackanalysis` (solo admin) | Analiza todos los logs con IA (Gemini) y devuelve resumen |
 
@@ -209,6 +208,7 @@ OWNER_TELEGRAM_ID=
 BETTERSTACK_TOKEN=         # Opcional, runtime logging
 OPENROUTER_API_KEY=        # Análisis de feedback con IA
 OPENROUTER_MODEL=openrouter/free  # Modelo (default: router automático)
+ALLOWED_GROUP_ID=        # Chat ID del grupo permitido para comandos grupales (dejar vacío para permitir todos)
 PORT=3000                  # Opcional
 ```
 
@@ -328,6 +328,7 @@ Archivo `CODE_REVIEW.md` contiene review de terceros (Kahel). Los hallazgos más
 
 ### 2026-05-11
 - **Comando `/feedbackanalysis`** — Se añadió análisis de logs con IA (OpenRouter, modelo `openrouter/free`) para admin. Usa `OPENROUTER_API_KEY` y `OPENROUTER_MODEL`. Si la respuesta excede 4096 chars se envía como archivo .txt.
+- **Grupos de Telegram** — Se añadió soporte para que el bot responda en grupos. Variable `ALLOWED_GROUP_ID` restringe a un grupo específico. Comandos disponibles en grupos: `/price`, `/priceall`, `/graph`, `/list`, `/help`, `/language`. Comando temporal `/detectgroup` para que el admin obtenga el chat ID del grupo.
 - **Nuevo sistema de feedback** — Se añadió comando `/feedback` para que usuarios envíen bugs, sugerencias o ideas (flow multistep con detección automática de categoría). Se creó tabla `user_feedback` en Supabase (migración `feedback_table.sql`). Comandos admin: `/feedbacklog` (descarga logs) y `/feedbacklogclean` (limpia logs). Solo accesibles para OWNER_TELEGRAM_ID.
 - **Modificación comando `/ntfy`** — Se añadió link clickeable a `https://ntfy.sh/` para que el usuario sepa dónde descargar la app. Se ocultaron todas las referencias a `/ntfygraph` en mensajes de ayuda, `/ntfy`, `/ntfystatus` y webhook handler (comentadas, no eliminadas) porque el comando no está disponible temporalmente.
 - **Creación de este archivo (`CONTEXT.md`)** — Para que asistentes de IA puedan entender el proyecto completo sin re-analizar el código fuente, ahorrando tokens y facilitando el onboarding en distintas máquinas/ sesiones de trabajo.

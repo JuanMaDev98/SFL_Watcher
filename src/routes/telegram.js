@@ -61,6 +61,18 @@ const TELEGRAM_WEBHOOK_SECRET = String(process.env.TELEGRAM_WEBHOOK_SECRET || ''
 const INTERNAL_API_SECRET = String(process.env.INTERNAL_API_SECRET || '');
 const OPENROUTER_API_KEY = String(process.env.OPENROUTER_API_KEY || '');
 const OPENROUTER_MODEL = String(process.env.OPENROUTER_MODEL || 'openrouter/free');
+const ALLOWED_GROUP_ID = String(process.env.ALLOWED_GROUP_ID || '');
+
+function isGroupChat(chatId) {
+  return String(chatId).startsWith('-');
+}
+
+function isAllowedGroup(chatId) {
+  if (!ALLOWED_GROUP_ID) return true;
+  return String(chatId) === ALLOWED_GROUP_ID;
+}
+
+const GROUP_COMMANDS = ['/price', '/priceall', '/graph', '/list', '/help', '/language', '/language es', '/language en'];
 
 function rejectUnauthorized(res, mode = 'json') {
   if (mode === 'hidden') {
@@ -551,6 +563,17 @@ router.post('/webhook', async (req, res) => {
 
     logger.info(`[webhook] ${command} from ${chatId}`);
 
+    if (isGroupChat(chatId)) {
+      if (!isAllowedGroup(chatId)) {
+        res.json({ ok: true }); return;
+      }
+      const isGroupCmd = GROUP_COMMANDS.some(c => command.startsWith(c));
+      if (!isGroupCmd) {
+        await sendTelegramAwait(chatId, '❌ Este comando no está disponible en grupos. Usa el bot en privado.');
+        res.json({ ok: true }); return;
+      }
+    }
+
   if (command === '/start') {
     await sendTelegramAwait(chatId,
       pick(locale,
@@ -778,6 +801,17 @@ router.post('/webhook', async (req, res) => {
       res.json({ ok: true }); return;
     }
     await processFeedbackAnalysis(String(chatId));
+  }
+  else if (command === '/detectgroup') {
+    if (String(chatId) !== OWNER_TELEGRAM_ID) {
+      res.json({ ok: true }); return;
+    }
+    const isGroup = isGroupChat(chatId);
+    if (isGroup) {
+      await sendTelegramAwait(chatId, `✅ Group detected!\n\nChat ID: <code>${chatId}</code>\n\nSet this as ALLOWED_GROUP_ID in Vercel env vars.`);
+    } else {
+      await sendTelegramAwait(chatId, '❌ This command only works in a group chat.');
+    }
   }
   // Beta gratis: status/pay desactivados temporalmente.
   else if (command === '/status' || command === '/pay') {
