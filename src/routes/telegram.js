@@ -396,6 +396,30 @@ async function handlePendingFlow(chatId, text) {
     return true;
   }
 
+  if (prefs.pendingAction === 'feedback') {
+    const lower = text.toLowerCase();
+    let category = 'other';
+    if (lower.includes('bug') || lower.includes('error') || lower.includes('crash') || lower.includes('fallo') || lower.includes('broken')) {
+      category = 'bug';
+    } else if (lower.includes('sugerencia') || lower.includes('suggestion') || lower.includes('idea') || lower.includes('mejora') || lower.includes('improve')) {
+      category = 'suggestion';
+    }
+
+    const { error } = await supabase
+      .from('user_feedback')
+      .insert({ user_id: parseInt(chatId), message: text.trim(), category });
+
+    await clearPendingAction(String(chatId));
+
+    if (error) {
+      logger.error('[feedback] DB insert error: ' + error.message);
+      await sendTelegramAwait(chatId, pick(locale, '❌ Error al guardar feedback. Intenta de nuevo.', '❌ Error saving feedback. Try again.'));
+    } else {
+      await sendTelegramAwait(chatId, pick(locale, '✅ ¡Feedback enviado! Gracias por ayudar a mejorar.', '✅ Feedback sent! Thanks for helping improve.'));
+    }
+    return true;
+  }
+
   if (prefs.pendingAction === 'sendpromo_en') {
     const payload = { ...(prefs.pendingPayload || {}), promo_en: text.trim() };
     const promoGuard = canSendPromo(chatId);
@@ -571,6 +595,10 @@ router.post('/webhook', async (req, res) => {
         '/ntfytest - Enviar notificación de prueba\n' +
         // '/ntfygraph on/off - Activar o desactivar gráficas en NTFY\n' +
         '/ntfystatus - Ver estado de tu configuración NTFY\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n' +
+        '💬 <b>FEEDBACK</b>\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n\n' +
+        '/feedback - Enviar bug, sugerencia o idea\n\n' +
         '📋 <b>Nota:</b> las notificaciones NTFY son públicas. NO compartas tu topic.',
         '📊 <b>SFL Watcher - Help</b>\n\n' +
         '📈 <b>PRICE COMMANDS</b>\n' +
@@ -607,6 +635,10 @@ router.post('/webhook', async (req, res) => {
         '/ntfytest - Send test notification to phone\n' +
         // '/ntfygraph on/off - Enable/disable graph images in NTFY\n' +
         '/ntfystatus - Check your NTFY settings\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n' +
+        '💬 <b>FEEDBACK</b>\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n\n' +
+        '/feedback - Report a bug, suggestion or idea\n\n' +
         '📋 <b>Note:</b> NTFY notifications are public. DO NOT share your topic.'
       )
     );
@@ -715,6 +747,28 @@ router.post('/webhook', async (req, res) => {
     const blocked = await checkSubscription(chatId);
     if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
     await processNtfyStatus(chatId);
+  }
+  else if (command === '/feedback') {
+    const blocked = await checkSubscription(chatId);
+    if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
+    await setPendingAction(String(chatId), 'feedback');
+    await sendTelegramAwait(chatId, pick(locale,
+      '✍️ Describe tu feedback (bug, sugerencia, idea, etc.):',
+      '✍️ Describe your feedback (bug, suggestion, idea, etc.):'));
+  }
+  else if (command === '/feedbacklog') {
+    if (String(chatId) !== OWNER_TELEGRAM_ID) {
+      await sendTelegramAwait(chatId, '❌ Command only available for bot owner.');
+      res.json({ ok: true }); return;
+    }
+    await processFeedbackLog(String(chatId));
+  }
+  else if (command === '/feedbacklogclean') {
+    if (String(chatId) !== OWNER_TELEGRAM_ID) {
+      await sendTelegramAwait(chatId, '❌ Command only available for bot owner.');
+      res.json({ ok: true }); return;
+    }
+    await processFeedbackLogClean(String(chatId));
   }
   // Beta gratis: status/pay desactivados temporalmente.
   else if (command === '/status' || command === '/pay') {
@@ -1573,6 +1627,48 @@ async function processNtfyStatus(chatId) {
     // '/ntfygraph on/off - Toggle graph images\n' +
     '/ntfystatus - This message'
   );
+}
+
+async function processFeedbackLog(chatId) {
+  const { data, error } = await supabase
+    .from('user_feedback')
+    .select('id, user_id, message, category, created_at')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    logger.error('[feedbacklog] DB error: ' + error.message);
+    await sendTelegramAwait(chatId, '❌ Error reading feedback logs.');
+    return;
+  }
+
+  if (!data || data.length === 0) {
+    await sendTelegramAwait(chatId, '📭 No feedback yet.');
+    return;
+  }
+
+  const lines = data.map(f =>
+    `[${f.created_at}] User: ${f.user_id} | Category: ${f.category}\n${f.message}\n---`
+  );
+  const content = lines.join('\n');
+  const header = `SFL Watcher - Feedback Log\nTotal: ${data.length} entries\nGenerated: ${new Date().toISOString()}\n${'='.repeat(50)}\n\n`;
+  const buffer = Buffer.from(header + content, 'utf-8');
+
+  await sendDocumentBuffer(chatId, buffer, `📋 ${data.length} feedback entries`, `feedback_${Date.now()}.txt`, 'text/plain');
+}
+
+async function processFeedbackLogClean(chatId) {
+  const { error } = await supabase
+    .from('user_feedback')
+    .delete()
+    .neq('id', 0);
+
+  if (error) {
+    logger.error('[feedbacklogclean] DB error: ' + error.message);
+    await sendTelegramAwait(chatId, '❌ Error cleaning feedback logs.');
+    return;
+  }
+
+  await sendTelegramAwait(chatId, '✅ All feedback logs have been deleted.');
 }
 
 async function processPay(chatId) {

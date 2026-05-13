@@ -133,7 +133,7 @@ docs/
 
 ### Migraciones (`supabase/*.sql`)
 
-Aplicar en orden: `alerts_table.sql` → `wallet_tables.sql` → `subscription_tables.sql` → `ntfy_settings.sql` → `critical_alerts_toggle.sql` → `critical_alert_state.sql` → `alert_steps_migration.sql` → `add_notify_expiry.sql` → `fix_alert_type_constraint.sql` → `fix_price_column.sql`.
+Aplicar en orden: `alerts_table.sql` → `wallet_tables.sql` → `subscription_tables.sql` → `ntfy_settings.sql` → `critical_alerts_toggle.sql` → `critical_alert_state.sql` → `alert_steps_migration.sql` → `add_notify_expiry.sql` → `fix_alert_type_constraint.sql` → `fix_price_column.sql` → `feedback_table.sql`.
 
 ---
 
@@ -185,6 +185,7 @@ Aplicar en orden: `alerts_table.sql` → `wallet_tables.sql` → `subscription_t
 | `/ntfystatus` | Ver estado de NTFY |
 | `/language es/en` | Cambiar idioma |
 | `/lang` | Alias de language |
+| `/feedback` | Enviar bug, sugerencia o idea (flow multistep) |
 
 **Comandos ocultos** (desactivados por `BETA_FREE_MODE=true`):
 `/connectwallet`, `/wallet`, `/subscribe`, `/status`, `/pay`
@@ -274,7 +275,17 @@ PORT=3000                  # Opcional
 
 ---
 
-## 14. CODE_REVIEW.md — Hallazgos
+## 14. Sistema de Feedback
+
+- Los usuarios envían feedback via comando `/feedback` (multistep con `pending_action`).
+- El bot detecta automáticamente la categoría (`bug`, `suggestion`, `other`) según keywords.
+- Se almacena en tabla `user_feedback` en Supabase (id, user_id, message, category, created_at).
+- El admin puede descargar todos los logs con `/feedbacklog` (solo OWNER_TELEGRAM_ID).
+- El admin puede limpiar los logs con `/feedbacklogclean` (solo OWNER_TELEGRAM_ID).
+
+---
+
+## 15. CODE_REVIEW.md — Hallazgos
 
 Archivo `CODE_REVIEW.md` contiene review de terceros (Kahel). Los hallazgos más importantes:
 
@@ -292,7 +303,7 @@ Archivo `CODE_REVIEW.md` contiene review de terceros (Kahel). Los hallazgos más
 
 ---
 
-## 15. Cosas Críticas a Saber
+## 16. Cosas Críticas a Saber
 
 1. **El scheduler NO es Vercel Cron.** Usa cron-job.org externo. El workflow de GitHub (`cron.yml`) solo sirve para disparo manual.
 2. **`/api/cron/fetch-prices` es GET**, no POST (compatibilidad con cron-job.org).
@@ -307,11 +318,12 @@ Archivo `CODE_REVIEW.md` contiene review de terceros (Kahel). Los hallazgos más
 
 ---
 
-## 16. Bitácora de Cambios
+## 17. Bitácora de Cambios
 
 *Formato: YYYY-MM-DD — Descripción del cambio (motivo / contexto)*
 
 ### 2026-05-11
+- **Nuevo sistema de feedback** — Se añadió comando `/feedback` para que usuarios envíen bugs, sugerencias o ideas (flow multistep con detección automática de categoría). Se creó tabla `user_feedback` en Supabase (migración `feedback_table.sql`). Comandos admin: `/feedbacklog` (descarga logs) y `/feedbacklogclean` (limpia logs). Solo accesibles para OWNER_TELEGRAM_ID.
 - **Modificación comando `/ntfy`** — Se añadió link clickeable a `https://ntfy.sh/` para que el usuario sepa dónde descargar la app. Se ocultaron todas las referencias a `/ntfygraph` en mensajes de ayuda, `/ntfy`, `/ntfystatus` y webhook handler (comentadas, no eliminadas) porque el comando no está disponible temporalmente.
 - **Creación de este archivo (`CONTEXT.md`)** — Para que asistentes de IA puedan entender el proyecto completo sin re-analizar el código fuente, ahorrando tokens y facilitando el onboarding en distintas máquinas/ sesiones de trabajo.
 
