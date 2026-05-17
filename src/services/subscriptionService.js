@@ -8,7 +8,7 @@ const FLOWER_PRICE_API = 'https://sfl.world/api/v1.1/exchange';
 const SUBSCRIPTION_USD = 1; // $1 USD = 30 days
 const DAYS_PER_SUBSCRIPTION = 30;
 const TRIAL_DAYS = 7;
-const DEFAULT_LANGUAGE = 'es';
+const DEFAULT_LANGUAGE = 'en';
 const BETA_FREE_MODE = true;
 const DEFAULT_CRITICAL_ALERTS_ENABLED = true;
 
