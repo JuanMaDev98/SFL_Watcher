@@ -1755,19 +1755,19 @@ async function processFeedbackAnalysis(chatId) {
     return;
   }
 
-  await sendTelegramAwait(chatId, '🤖 Analyzing feedback with AI... This may take a few seconds.');
+  await sendTelegramAwait(chatId, '🤖 Analizando feedback con IA... Esto puede tomar unos segundos.');
 
   const logText = data.map(f =>
     `[${f.created_at}] User: ${f.user_id} | Category: ${f.category}\n${f.message}`
   ).join('\n\n');
 
-  const prompt = `Project: SFL Watcher is a Telegram bot that monitors resource prices in the Sunflower Land blockchain game (sfl.world). It fetches prices every 15 minutes, stores snapshots in a database, and alerts users when prices cross configurable thresholds via Telegram and NTFY push notifications. It also generates price charts.
+const prompt = `Project: SFL Watcher is a Telegram bot that monitors resource prices in the Sunflower Land blockchain game (sfl.world). It fetches prices every 15 minutes, stores snapshots in a database, and alerts users when prices cross configurable thresholds via Telegram and NTFY push notifications. It also generates price charts.
 
-Task: Analyze the following user feedback logs and provide a structured plain-text summary. IMPORTANT: Do NOT use markdown (#, **, *, etc.) or HTML tags in your response. Use only emojis and plain text. Telegram has limited formatting — keep it simple and readable.
+Task: Analyze the following user feedback logs and provide a structured plain-text summary. IMPORTANT: You MUST respond in SPANISH. Do NOT use markdown (#, **, *, etc.) or HTML tags in your response. Use only emojis and plain text. Telegram has limited formatting — keep it simple and readable.
 
 Structure your response like this:
 - Use emojis at the start of each section (e.g., 🔍, 💡, ⚠️, 😊)
-- Use short paragraphs with line breaks (\\n)
+- Use short paragraphs with line breaks (\n)
 - Do NOT use bold (**text**), italics (*text*), headers (#), or any markup
 - Keep it under 1500 characters total so it fits in a Telegram message
 - If the analysis is too long, summarize more aggressively
@@ -1777,7 +1777,7 @@ ${logText}`;
 
   try {
     const analysis = await callAI(prompt);
-    const msg = `🤖 <b>Feedback Analysis</b>\n\n${analysis.replace(/\n/g, '\n')}`;
+    const msg = `🤖 <b>Análisis de Feedback</b>\n\n${analysis.replace(/\n/g, '\n')}`;
 
     if (msg.length > 4096) {
       const buffer = Buffer.from(analysis, 'utf-8');
@@ -1787,7 +1787,7 @@ ${logText}`;
     }
   } catch (err) {
     logger.error('[feedbackanalysis] AI error: ' + err.message);
-    await sendTelegramAwait(chatId, '❌ Failed to analyze feedback: ' + err.message);
+    await sendTelegramAwait(chatId, '❌ Error al analizar feedback: ' + err.message);
   }
 }
 
