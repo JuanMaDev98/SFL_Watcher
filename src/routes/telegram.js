@@ -451,16 +451,11 @@ async function handlePendingFlow(chatId, text) {
 
     for (const user of recipients) {
       const outgoing = promoMessageForLanguage(user.language, payload.promo_es || text.trim(), payload.promo_en || text.trim());
-      const tgTitle = promoMessageForLanguage(user.language, '📣 <b>Novedad de SFL Watcher</b>', '📣 <b>SFL Watcher Update</b>');
-      const tgMessage = `${tgTitle}\n\n${escapeHtml(outgoing)}`;
-      const okTelegram = await sendTelegramMessage(user.userId, tgMessage);
+      const okTelegram = await sendTelegramMessage(user.userId, outgoing);
       if (okTelegram) sentTelegram += 1;
 
       if (user.ntfyEnabled) {
-        const ntfyBody = `${promoMessageForLanguage(user.language, 'Novedad de SFL Watcher', 'SFL Watcher Update')}\n\n${outgoing}`;
-        const okNtfy = await sendNtfyNotification(getUserNtfyTopic(user.userId), ntfyBody, {
-          title: 'SFL Watcher Update',
-          tags: 'loudspeaker',
+        const okNtfy = await sendNtfyNotification(getUserNtfyTopic(user.userId), outgoing, {
           priority: 4,
         });
         if (okNtfy) sentNtfy += 1;
