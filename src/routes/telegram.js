@@ -858,9 +858,8 @@ async function processPriceSimple(chatId, resource) {
       return;
     }
 
-    await sendTelegramAwait(chatId, formatGraphCaption(normalizedResource, stats, locale), {
-      reply_markup: buildQuickAlertKeyboard(normalizedResource),
-    });
+    const replyMarkup = isGroupChat(chatId) ? null : { reply_markup: buildQuickAlertKeyboard(normalizedResource) };
+    await sendTelegramAwait(chatId, formatGraphCaption(normalizedResource, stats, locale), replyMarkup);
   } catch (error) {
     logger.error('[price] error: ' + error.message);
     recordError('telegram.processPriceSimple', error.message);
