@@ -72,7 +72,7 @@ function isAllowedGroup(chatId) {
   return String(chatId) === ALLOWED_GROUP_ID;
 }
 
-const GROUP_COMMANDS = ['/price', '/priceall', '/graph', '/list', '/help', '/language', '/language es', '/language en'];
+const GROUP_COMMANDS = ['/price', '/priceall', '/graph', '/language', '/language es', '/language en'];
 
 function rejectUnauthorized(res, mode = 'json') {
   if (mode === 'hidden') {
