@@ -1494,6 +1494,8 @@ async function processConnectWallet(chatId, walletAddress) {
     logger.error('[connectwallet] error: ' + error.message);
     if (error.message.includes('Invalid Ethereum')) {
       await sendTelegramAwait(chatId, '❌ Invalid Ethereum address format.\n\nExample: 0x742d35Cc6634C0532925a3b844Bc9e7595f1d687');
+    } else if (error.message.includes('Wallet already linked')) {
+      await sendTelegramAwait(chatId, '❌ <b>Wallet already in use</b>\n\nThis wallet address is already linked to another Telegram account.\n\nEach wallet can only be connected to one account for security reasons.');
     } else {
       await sendTelegramAwait(chatId, `Error: ${error.message}`);
     }

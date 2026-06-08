@@ -146,7 +146,13 @@ async function connectWallet(userId, walletAddress) {
       connected_at: new Date().toISOString()
     });
 
-  if (error) throw error;
+  if (error) {
+    // Unique violation on wallet_address - already linked to another user
+    if (error.code === '23505') {
+      throw new Error('Wallet already linked to another user');
+    }
+    throw error;
+  }
   return true;
 }
 
