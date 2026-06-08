@@ -21,6 +21,8 @@ const {
   setAdsEnabled,
   isPremiumUser,
   getPremiumUsersCount,
+  storePaymentQuote,
+  getPaymentQuote,
   getCriticalAlertsEnabled,
   setCriticalAlertsEnabled,
   getNtfySettings,
@@ -1568,6 +1570,8 @@ async function processSubscribe(chatId) {
         lines.push('');
         lines.push(`📦 ~${cost.flower_amount} FLOWER`);
         lines.push(`   (≈ $${cost.usd} USD at $${cost.flower_price_usd.toFixed(4)}/FLOWER)`);
+        // Lock this quoted price so it doesn't change if FLOWER moves
+        await storePaymentQuote(chatId.toString(), cost.flower_amount);
       }
 
       lines.push('');
@@ -1579,6 +1583,8 @@ async function processSubscribe(chatId) {
     lines.push('1. /connectwallet &lt;your_address&gt;');
     lines.push('2. Send FLOWER to the address above');
     lines.push('3. /pay to activate (90 days)');
+    lines.push('');
+    lines.push('⏳ <b>Price locked for 1 hour.</b> If it expires, run /subscribe again.');
 
     await sendTelegramAwait(chatId, lines.join('\n'));
 
@@ -1895,17 +1901,24 @@ async function processPay(chatId) {
       return;
     }
 
+    // Use the lower of quoted (locked from /subscribe) or current required amount
+    // This protects users if FLOWER price drops after they check /subscribe
+    const quotedFlower = await getPaymentQuote(chatId.toString());
+    const requiredFlower = quotedFlower !== null && quotedFlower < cost.flower_amount
+      ? quotedFlower
+      : cost.flower_amount;
+
     const searchMsg = [
       '🔍 <b>Searching for payment...</b>\n\n',
       'From: ' + userWallet + '\n',
       'To: ' + PAYMENT_ADDRESS + '\n',
-      'Amount: ~' + cost.flower_amount + ' FLOWER\n\n',
+      'Amount: ~' + requiredFlower.toFixed(4) + ' FLOWER\n\n',
       'This may take a few seconds...'
     ].join('');
     await sendTelegramAwait(chatId, searchMsg);
 
     // Search for payment from user's wallet to payment address
-    const result = await verifyWalletPayment(userWallet, cost.flower_amount);
+    const result = await verifyWalletPayment(userWallet, requiredFlower);
 
     if (!result.success) {
       if (result.partialPayment) {

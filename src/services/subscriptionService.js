@@ -453,6 +453,34 @@ async function clearPendingAction(userId) {
   if (error) throw error;
 }
 
+/**
+ * Store a FLOWER payment quote so the price is locked when user checks /subscribe
+ */
+async function storePaymentQuote(userId, flowerAmount) {
+  const db = getSupabase();
+  await ensureSubscription(userId);
+  const { error } = await db
+    .from('user_subscriptions')
+    .update({ pending_payload: { quoted_flower_amount: flowerAmount, quoted_at: new Date().toISOString() }, updated_at: new Date().toISOString() })
+    .eq('user_id', userId);
+  if (error && isMissingColumnError(error)) {
+    throw new Error('Database migration required');
+  }
+  if (error) throw error;
+}
+
+/**
+ * Get stored payment quote, returns null if none or older than 1 hour
+ */
+async function getPaymentQuote(userId) {
+  const prefs = await getUserPreferences(userId);
+  const payload = prefs.pendingPayload || {};
+  if (!payload.quoted_flower_amount || !payload.quoted_at) return null;
+  const age = Date.now() - new Date(payload.quoted_at).getTime();
+  if (age > 60 * 60 * 1000) return null; // Expired after 1 hour
+  return payload.quoted_flower_amount;
+}
+
 async function getFreeTierUsers() {
   const db = getSupabase();
   let { data, error } = await db
@@ -607,6 +635,8 @@ module.exports = {
   setAdsEnabled,
   isPremiumUser,
   getPremiumUsersCount,
+  storePaymentQuote,
+  getPaymentQuote,
   PAYMENT_ADDRESS,
   DAYS_PER_SUBSCRIPTION,
   SUBSCRIPTION_USD,
