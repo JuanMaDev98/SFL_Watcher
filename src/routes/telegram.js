@@ -1612,29 +1612,9 @@ async function processStatus(chatId) {
       return;
     }
 
-    const sub = await getSubscriptionStatus(chatId.toString());
-    const wallet = await getUserWallet(chatId.toString());
-
-    let message;
-    if (sub.status === 'new' || sub.status === 'trial') {
-      message = pick(locale,
-        `✅ <b>Trial Activo</b>\n\n⏰ 7 días de prueba\n\n/subscribe — Ver opciones de pago\n/pay — Pagar y obtener 3 meses sin anuncios`,
-        `✅ <b>Trial Active</b>\n\n⏰ 7-day trial\n\n/subscribe — View payment options\n/pay — Pay and get 3 months ad-free`);
-    } else if (sub.status === 'trial_expired') {
-      message = pick(locale,
-        `⏳ <b>Trial Expirado</b>\n\n/subscribe — Ver opciones de pago\n/pay — Pagar y obtener 3 meses sin anuncios`,
-        `⏳ <b>Trial Expired</b>\n\n/subscribe — View payment options\n/pay — Pay and get 3 months ad-free`);
-    } else if (sub.status === 'expired') {
-      message = pick(locale,
-        `⏳ <b>Suscripción Expirada</b>\n\n/pay — Renovar por 3 meses sin anuncios`,
-        `⏳ <b>Subscription Expired</b>\n\n/pay — Renew for 3 months ad-free`);
-    } else {
-      message = pick(locale,
-        '❓ Usa /subscribe para comenzar.',
-        '❓ Use /subscribe to start.');
-    }
-
-    await sendTelegramAwait(chatId, message);
+    await sendTelegramAwait(chatId, pick(locale,
+      `👤 <b>Usuario Gratuito</b>\n\nTienes acceso completo al bot.\n\n⭐ Hazte premium por solo <b>$1 USD en FLOWER</b> (3 meses) y elimina los anuncios.\n\n/pay — Ver opciones de pago`,
+      `👤 <b>Free User</b>\n\nYou have full access to the bot.\n\n⭐ Go premium for only <b>$1 USD in FLOWER</b> (3 months) and remove ads.\n\n/pay — View payment options`));
 
   } catch (error) {
     logger.error('[status] error: ' + error.message);
