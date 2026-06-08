@@ -1583,23 +1583,55 @@ async function processSubscribe(chatId) {
 }
 
 async function processStatus(chatId) {
+  const locale = await getLocale(chatId);
   const { getSubscriptionStatus, getUserWallet } = require('../services/subscriptionService');
 
   try {
+    // Check real premium status first (bypasses BETA_FREE_MODE)
+    const isPremium = await isPremiumUser(chatId.toString());
+    if (isPremium) {
+      const supabase = require('../lib/supabase');
+      const { data } = await supabase
+        .from('user_subscriptions')
+        .select('subscription_ends_at')
+        .eq('user_id', chatId.toString())
+        .single();
+      let daysLeft = 0;
+      if (data?.subscription_ends_at) {
+        const diff = new Date(data.subscription_ends_at) - new Date();
+        daysLeft = Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+      }
+      const prefs = await getUserPreferences(chatId.toString());
+      const adsStatus = prefs.adsEnabled
+        ? pick(locale, 'ACTIVADOS', 'ENABLED')
+        : pick(locale, 'DESACTIVADOS', 'DISABLED');
+
+      await sendTelegramAwait(chatId, pick(locale,
+        `✅ <b>Suscripción Premium Activa</b>\n\n📅 ${daysLeft} días restantes\n📢 Ads: <b>${adsStatus}</b>\n\n/ads off — Desactivar anuncios\n/ads on — Reactivar anuncios\n/subscribe — Extender suscripción`,
+        `✅ <b>Premium Subscription Active</b>\n\n📅 ${daysLeft} days remaining\n📢 Ads: <b>${adsStatus}</b>\n\n/ads off — Disable ads\n/ads on — Re-enable ads\n/subscribe — Extend subscription`));
+      return;
+    }
+
     const sub = await getSubscriptionStatus(chatId.toString());
     const wallet = await getUserWallet(chatId.toString());
 
     let message;
     if (sub.status === 'new' || sub.status === 'trial') {
-      message = `✅ <b>Trial Active</b>\n\n⏰ ${sub.days_remaining} days left\n\nUse /subscribe to pay and extend.`;
+      message = pick(locale,
+        `✅ <b>Trial Activo</b>\n\n⏰ 7 días de prueba\n\n/subscribe — Ver opciones de pago\n/pay — Pagar y obtener 3 meses sin anuncios`,
+        `✅ <b>Trial Active</b>\n\n⏰ 7-day trial\n\n/subscribe — View payment options\n/pay — Pay and get 3 months ad-free`);
     } else if (sub.status === 'trial_expired') {
-      message = `⏳ <b>Trial Expired</b>\n\nYour free trial ended.\n\nUse /subscribe to pay.`;
-    } else if (sub.status === 'active') {
-      message = `✅ <b>Subscription Active</b>\n\n📅 ${sub.days_remaining} days remaining\n\nUse /subscribe to extend.`;
+      message = pick(locale,
+        `⏳ <b>Trial Expirado</b>\n\n/subscribe — Ver opciones de pago\n/pay — Pagar y obtener 3 meses sin anuncios`,
+        `⏳ <b>Trial Expired</b>\n\n/subscribe — View payment options\n/pay — Pay and get 3 months ad-free`);
     } else if (sub.status === 'expired') {
-      message = `⏳ <b>Subscription Expired</b>\n\nUse /subscribe to renew.`;
+      message = pick(locale,
+        `⏳ <b>Suscripción Expirada</b>\n\n/pay — Renovar por 3 meses sin anuncios`,
+        `⏳ <b>Subscription Expired</b>\n\n/pay — Renew for 3 months ad-free`);
     } else {
-      message = `❓ Use /subscribe to start.`;
+      message = pick(locale,
+        '❓ Usa /subscribe para comenzar.',
+        '❓ Use /subscribe to start.');
     }
 
     await sendTelegramAwait(chatId, message);
