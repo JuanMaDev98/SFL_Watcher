@@ -126,7 +126,7 @@ async function checkExpiringSubscriptions() {
         pick(locale, `Tu suscripción vence en <b>${timeLeftStr}</b>.`, `Your subscription expires in <b>${timeLeftStr}</b>.`),
         '',
         pick(locale, 'Para seguir usando SFL Watcher, envía <code>/pay</code> para renovar.', 'To keep using SFL Watcher, send <code>/pay</code> to renew.'),
-        'Cost: <b>$1 USD</b> (~30 days)'
+        'Cost: <b>$1 USD</b> (~90 days)'
       ].join('\n');
       
       await sendTelegram(chatId, message);
@@ -138,6 +138,43 @@ async function checkExpiringSubscriptions() {
         .eq('user_id', sub.user_id);
       
       logger.info('Notified user ' + sub.user_id + ' about expiring subscription');
+    }
+
+    // Check for recently expired subscriptions (status=active but end date passed)
+    const { data: expiredUsers, error: expiredError } = await supabase
+      .from('user_subscriptions')
+      .select('user_id, preferred_language, subscription_notified_expired')
+      .eq('status', 'active')
+      .lt('subscription_ends_at', now.toISOString())
+      .eq('subscription_notified_expired', false);
+
+    if (expiredError) {
+      logger.error('Error fetching expired subscriptions: ' + expiredError.message);
+    } else {
+      for (const sub of expiredUsers || []) {
+        if (!sub.user_id) continue;
+        const locale = sub.preferred_language || 'es';
+        const message = [
+          pick(locale, '⏰ <b>Tu suscripción premium ha expirado</b>', '⏰ <b>Your premium subscription has expired</b>'),
+          '',
+          pick(locale, 'Los anuncios han vuelto a activarse.', 'Ads have been re-enabled.'),
+          '',
+          pick(locale, 'Para renovar y seguir sin anuncios:', 'To renew and stay ad-free:'),
+          pick(locale, '1. <code>/connectwallet &lt;tu_address&gt;</code> — Conecta tu wallet', '1. <code>/connectwallet &lt;your_address&gt;</code> — Connect your wallet'),
+          pick(locale, '2. <code>/pay</code> — Paga 1 USD en FLOWER por 3 meses', '2. <code>/pay</code> — Pay 1 USD in FLOWER for 3 months'),
+          '',
+          pick(locale, '💜 Gracias por apoyar el proyecto.', '💜 Thanks for supporting the project.'),
+        ].join('\n');
+        
+        await sendTelegram(sub.user_id, message);
+        
+        await supabase
+          .from('user_subscriptions')
+          .update({ subscription_notified_expired: true, updated_at: now.toISOString() })
+          .eq('user_id', sub.user_id);
+        
+        logger.info('Notified user ' + sub.user_id + ' about expired subscription');
+      }
     }
   } catch (e) {
     logger.error('Expiry check error: ' + e.message);

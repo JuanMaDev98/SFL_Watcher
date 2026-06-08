@@ -17,6 +17,10 @@ const {
   clearPendingAction,
   getFreeTierUsers,
   getBroadcastUsers,
+  getBroadcastUsersWithSkipped,
+  setAdsEnabled,
+  isPremiumUser,
+  getPremiumUsersCount,
   getCriticalAlertsEnabled,
   setCriticalAlertsEnabled,
   getNtfySettings,
@@ -28,6 +32,7 @@ const {
   isTxHashUsed,
   verifyWalletPayment,
   PAYMENT_ADDRESS,
+  DAYS_PER_SUBSCRIPTION,
   BETA_FREE_MODE,
 } = require('../services/subscriptionService');
 const {
@@ -443,7 +448,7 @@ async function handlePendingFlow(chatId, text) {
       return true;
     }
 
-    const recipients = await getBroadcastUsers();
+    const { recipients, total, skipped } = await getBroadcastUsersWithSkipped();
 
     let sentTelegram = 0;
     let sentNtfy = 0;
@@ -470,7 +475,9 @@ async function handlePendingFlow(chatId, text) {
     });
 
     await clearPendingAction(String(chatId));
-    await sendTelegramAwait(chatId, pick(locale, `✅ Promo enviada por Telegram a ${sentTelegram}/${recipients.length} usuarios.\n✅ Promo enviada por NTFY a ${sentNtfy}/${ntfyRecipients.length} usuarios con NTFY activo.`, `✅ Promo sent by Telegram to ${sentTelegram}/${recipients.length} users.\n✅ Promo sent by NTFY to ${sentNtfy}/${ntfyRecipients.length} users with NTFY enabled.`));
+    await sendTelegramAwait(chatId, pick(locale,
+      `✅ Promo enviada por Telegram a ${sentTelegram}/${total} usuarios.\n⏭️ ${skipped} usuarios premium omitidos (ads desactivados)\n✅ Promo enviada por NTFY a ${sentNtfy}/${ntfyRecipients.length} usuarios con NTFY activo.`,
+      `✅ Promo sent by Telegram to ${sentTelegram}/${total} users.\n⏭️ ${skipped} premium users skipped (ads disabled)\n✅ Promo sent by NTFY to ${sentNtfy}/${ntfyRecipients.length} users with NTFY enabled.`));
     return true;
   }
 
@@ -609,6 +616,15 @@ router.post('/webhook', async (req, res) => {
         '/language es - Cambiar a español\n' +
         '/language en - Cambiar a inglés\n\n' +
         '━━━━━━━━━━━━━━━━━━━━\n' +
+        '⭐ <b>PREMIUM (SIN ADS)</b>\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n\n' +
+        '/connectwallet &lt;address&gt; - Conectar wallet\n' +
+        '/wallet - Ver wallet conectada\n' +
+        '/subscribe - Ver info de pago\n' +
+        '/pay - Pagar 1 USD en FLOWER (3 meses)\n' +
+        '/status - Estado de tu suscripción\n' +
+        '/ads on|off - Controlar anuncios\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n' +
         '📱 <b>NOTIFICACIONES NTFY</b>\n' +
         '━━━━━━━━━━━━━━━━━━━━\n\n' +
         '/ntfy - Configurar NTFY para el teléfono\n' +
@@ -648,6 +664,15 @@ router.post('/webhook', async (req, res) => {
         '━━━━━━━━━━━━━━━━━━━━\n\n' +
         '/language es - Switch to Spanish\n' +
         '/language en - Switch to English\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n' +
+        '⭐ <b>PREMIUM (AD-FREE)</b>\n' +
+        '━━━━━━━━━━━━━━━━━━━━\n\n' +
+        '/connectwallet &lt;address&gt; - Connect wallet\n' +
+        '/wallet - View connected wallet\n' +
+        '/subscribe - View payment info\n' +
+        '/pay - Pay 1 USD in FLOWER (3 months)\n' +
+        '/status - Check subscription status\n' +
+        '/ads on|off - Control ads\n\n' +
         '━━━━━━━━━━━━━━━━━━━━\n' +
         '📱 <b>NTFY PHONE NOTIFICATIONS</b>\n' +
         '━━━━━━━━━━━━━━━━━━━━\n\n' +
@@ -741,9 +766,15 @@ router.post('/webhook', async (req, res) => {
     if (blocked) { await sendTelegramAwait(chatId, blocked); res.json({ ok: true }); return; }
     await processRemoveAllAlerts(chatId);
   }
-  // Beta gratis: comandos de suscripción ocultos temporalmente.
-  else if (command === '/connectwallet' || command === '/wallet' || command === '/subscribe') {
-    await sendTelegramAwait(chatId, pick(locale, '🧪 La beta es gratis por ahora. Este comando está oculto temporalmente.', '🧪 The beta is free for now. This command is temporarily hidden.'));
+  else if (command === '/connectwallet') {
+    const walletAddress = parts.length > 1 ? parts.slice(1).join('') : null;
+    await processConnectWallet(chatId, walletAddress);
+  }
+  else if (command === '/wallet') {
+    await processShowWallet(chatId);
+  }
+  else if (command === '/subscribe') {
+    await processSubscribe(chatId);
   }
   else if (command === '/ntfy') {
     const blocked = await checkSubscription(chatId);
@@ -808,9 +839,41 @@ router.post('/webhook', async (req, res) => {
       await sendTelegramAwait(chatId, '❌ This command only works in a group chat.');
     }
   }
-  // Beta gratis: status/pay desactivados temporalmente.
-  else if (command === '/status' || command === '/pay') {
-    await sendTelegramAwait(chatId, pick(locale, '🧪 La beta es gratis por ahora. Este comando está desactivado temporalmente.', '🧪 The beta is free for now. This command is temporarily disabled.'));
+  else if (command === '/ads') {
+    const isPremium = await isPremiumUser(chatId.toString());
+    if (!isPremium) {
+      await sendTelegramAwait(chatId, pick(locale,
+        '❌ Solo usuarios premium pueden usar este comando.\n\nUsa /pay para suscribirte y obtener 3 meses sin publicidad.',
+        '❌ Only premium users can use this command.\n\nUse /pay to subscribe and get 3 months ad-free.'));
+      res.json({ ok: true }); return;
+    }
+    const action = parts[1] ? parts[1].toLowerCase() : '';
+    if (action === 'off') {
+      await setAdsEnabled(chatId.toString(), false);
+      await sendTelegramAwait(chatId, pick(locale,
+        '✅ Ads desactivados. Ya no recibirás promociones ni notificaciones NTFY promocionales durante tu suscripción.\n\nPara reactivarlos: /ads on',
+        '✅ Ads disabled. You will no longer receive promotional broadcasts or NTFY promos during your subscription.\n\nTo re-enable: /ads on'));
+    } else if (action === 'on') {
+      await setAdsEnabled(chatId.toString(), true);
+      await sendTelegramAwait(chatId, pick(locale,
+        '✅ Ads activados. Recibirás promociones nuevamente. Gracias por apoyar el proyecto 💜',
+        '✅ Ads enabled. You will receive promos again. Thanks for supporting the project 💜'));
+    } else {
+      const prefs = await getUserPreferences(chatId.toString());
+      const adsEnabled = prefs.adsEnabled !== undefined ? prefs.adsEnabled : true;
+      const statusText = adsEnabled
+        ? pick(locale, 'ACTIVADOS', 'ENABLED')
+        : pick(locale, 'DESACTIVADOS', 'DISABLED');
+      await sendTelegramAwait(chatId, pick(locale,
+        `📢 <b>Control de Ads</b>\n\nEstado: <b>${statusText}</b>\n\n/ads off — Desactivar promociones\n/ads on — Reactivar promociones`,
+        `📢 <b>Ad Control</b>\n\nStatus: <b>${statusText}</b>\n\n/ads off — Disable promotions\n/ads on — Re-enable promotions`));
+    }
+  }
+  else if (command === '/status') {
+    await processStatus(chatId);
+  }
+  else if (command === '/pay') {
+    await processPay(chatId);
   }
   else {
     await sendTelegramAwait(chatId, '❌ Unknown command.\nUse /help to see commands.');
@@ -1370,9 +1433,10 @@ async function processHealthPanel(chatId) {
   }
 
   try {
-    const [usersResult, alertsResult] = await Promise.all([
+    const [usersResult, alertsResult, premiumCount] = await Promise.all([
       supabase.from('user_subscriptions').select('user_id', { count: 'exact', head: true }),
       supabase.from('user_alerts').select('id', { count: 'exact', head: true }).eq('enabled', true),
+      getPremiumUsersCount(),
     ]);
 
     const usersActive = usersResult.count || 0;
@@ -1383,8 +1447,8 @@ async function processHealthPanel(chatId) {
       : pick(locale, 'lista', 'ready');
 
     const message = pick(locale,
-      `🩺 <b>Panel de salud</b>\n\n👥 Usuarios activos: <b>${usersActive}</b>\n🔔 Alertas activas: <b>${alertsActive}</b>\n📣 Promos enviadas (24h): <b>${snapshot.promosSent24h}</b>\n❌ Errores últimas 24h: <b>${snapshot.errors24h}</b>\n⏳ Cooldown promo: <b>${cooldownText}</b>`,
-      `🩺 <b>Health panel</b>\n\n👥 Active users: <b>${usersActive}</b>\n🔔 Active alerts: <b>${alertsActive}</b>\n📣 Promos sent (24h): <b>${snapshot.promosSent24h}</b>\n❌ Errors last 24h: <b>${snapshot.errors24h}</b>\n⏳ Promo cooldown: <b>${cooldownText}</b>`
+      `🩺 <b>Panel de salud</b>\n\n👥 Usuarios activos: <b>${usersActive}</b>\n⭐ Usuarios premium: <b>${premiumCount}</b>\n🔔 Alertas activas: <b>${alertsActive}</b>\n📣 Promos enviadas (24h): <b>${snapshot.promosSent24h}</b>\n❌ Errores últimas 24h: <b>${snapshot.errors24h}</b>\n⏳ Cooldown promo: <b>${cooldownText}</b>`,
+      `🩺 <b>Health panel</b>\n\n👥 Active users: <b>${usersActive}</b>\n⭐ Premium users: <b>${premiumCount}</b>\n🔔 Active alerts: <b>${alertsActive}</b>\n📣 Promos sent (24h): <b>${snapshot.promosSent24h}</b>\n❌ Errors last 24h: <b>${snapshot.errors24h}</b>\n⏳ Promo cooldown: <b>${cooldownText}</b>`
     );
 
     await sendTelegramAwait(chatId, message);
@@ -1496,6 +1560,7 @@ async function processSubscribe(chatId) {
         lines.push('');
         lines.push(`📦 Amount: <b>~${cost.flower_amount} FLOWER</b>`);
         lines.push(`   (≈ $${cost.usd} USD at $${cost.flower_price_usd.toFixed(4)}/FLOWER)`);
+        lines.push(`📅 Duration: <b>${DAYS_PER_SUBSCRIPTION} days (3 months)</b>`);
       }
 
       lines.push('');
@@ -1507,7 +1572,7 @@ async function processSubscribe(chatId) {
     lines.push('1. /connectwallet &lt;your_address&gt;');
     lines.push('2. /subscribe to see amount');
     lines.push('3. Send FLOWER from YOUR wallet');
-    lines.push('4. /pay to activate');
+    lines.push(`4. /pay to activate (${DAYS_PER_SUBSCRIPTION} days)`);
 
     await sendTelegramAwait(chatId, lines.join('\n'));
 
@@ -1860,16 +1925,39 @@ async function processPay(chatId) {
     }
 
     // Payment found and not used! Add subscription
-    const added = await addSubscriptionDays(chatId.toString(), 30);
-    await recordPayment(chatId.toString(), result.txHash, result.network, result.amount, cost.usd);
+    const added = await addSubscriptionDays(chatId.toString(), DAYS_PER_SUBSCRIPTION);
+    await recordPayment(chatId.toString(), result.txHash, result.network, result.amount, cost.usd, DAYS_PER_SUBSCRIPTION);
 
     if (added) {
+      // Notify admin about new subscriber
+      let userName = `User ${chatId}`;
+      try {
+        const userResp = await fetch(`${TELEGRAM_API}/getChat?chat_id=${chatId}`);
+        const userData = await userResp.json();
+        if (userData.ok) {
+          userName = userData.result.username
+            ? `@${userData.result.username}`
+            : (userData.result.first_name || userName);
+        }
+      } catch (_) { /* fallback to chatId */ }
+      await sendTelegramAwait(OWNER_TELEGRAM_ID,
+        `💰 <b>New Premium Subscription</b>\n\n` +
+        `User: ${userName}\n` +
+        `ID: <code>${chatId}</code>\n` +
+        `Amount: ${result.amount.toFixed(4)} FLOWER\n` +
+        `Network: ${result.network.toUpperCase()}\n` +
+        `Days: ${DAYS_PER_SUBSCRIPTION}\n` +
+        `Tx: ${result.txHash.slice(0, 16)}...`
+      );
+
       await sendTelegramAwait(chatId,
         `✅ <b>Payment Verified!</b>\n\n` +
         `💐 Amount: ${result.amount.toFixed(4)} FLOWER\n` +
         `🔗 Network: ${result.network.toUpperCase()}\n` +
         `🔗 Tx: ${result.txHash.slice(0, 16)}...\n` +
-        `📅 +30 days added to your subscription!\n\n` +
+        `📅 +${DAYS_PER_SUBSCRIPTION} days added to your subscription!\n\n` +
+        `🙏 <b>Thank you for supporting the project!</b>\n` +
+        `You can now disable promotions with /ads off if you wish.\n\n` +
         `Use /status to check your subscription.`
       );
     } else {

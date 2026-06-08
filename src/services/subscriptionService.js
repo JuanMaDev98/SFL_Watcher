@@ -5,8 +5,8 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const FLOWER_PRICE_API = 'https://sfl.world/api/v1.1/exchange';
-const SUBSCRIPTION_USD = 1; // $1 USD = 30 days
-const DAYS_PER_SUBSCRIPTION = 30;
+const SUBSCRIPTION_USD = 1; // $1 USD = 90 days
+const DAYS_PER_SUBSCRIPTION = 90;
 const TRIAL_DAYS = 7;
 const DEFAULT_LANGUAGE = 'en';
 const BETA_FREE_MODE = true;
@@ -213,7 +213,9 @@ function formatSubscription(sub) {
     days_remaining: daysRemaining,
     trial_started_at: sub.trial_started_at,
     trial_ends_at: sub.trial_ends_at,
-    subscription_ends_at: sub.subscription_ends_at
+    subscription_ends_at: sub.subscription_ends_at,
+    ads_enabled: sub.ads_enabled !== false,
+    user_id: sub.user_id,
   };
 }
 
@@ -354,7 +356,7 @@ async function getUserPreferences(userId) {
   const db = getSupabase();
   let { data, error } = await db
     .from('user_subscriptions')
-    .select('preferred_language, critical_alerts_enabled, pending_action, pending_payload, status, ntfy_enabled, ntfy_graph_enabled, notify_expiry')
+    .select('preferred_language, critical_alerts_enabled, pending_action, pending_payload, status, ntfy_enabled, ntfy_graph_enabled, notify_expiry, ads_enabled')
     .eq('user_id', userId)
     .single();
 
@@ -377,6 +379,7 @@ async function getUserPreferences(userId) {
     ntfyEnabled: data?.ntfy_enabled || false,
     ntfyGraphEnabled: data?.ntfy_graph_enabled !== undefined ? data.ntfy_graph_enabled : true,
     notifyExpiry: data?.notify_expiry || null,
+    adsEnabled: data?.ads_enabled !== false,
   };
 }
 
@@ -468,7 +471,7 @@ async function getBroadcastUsers() {
   const db = getSupabase();
   let { data, error } = await db
     .from('user_subscriptions')
-    .select('user_id, preferred_language, status, ntfy_enabled, critical_alerts_enabled');
+    .select('user_id, preferred_language, status, ntfy_enabled, critical_alerts_enabled, ads_enabled');
 
   if (error && isMissingColumnError(error)) {
     ({ data, error } = await db
@@ -478,8 +481,12 @@ async function getBroadcastUsers() {
 
   if (error) throw error;
 
-  return (data || [])
+  const filtered = (data || [])
     .filter(row => row?.user_id)
+    // Exclude premium users who have opted out of ads
+    .filter(row => !(row.status === 'active' && row.ads_enabled === false));
+
+  return filtered
     .map(row => ({
       userId: row.user_id,
       language: row.preferred_language || DEFAULT_LANGUAGE,
@@ -487,6 +494,85 @@ async function getBroadcastUsers() {
       ntfyEnabled: row.ntfy_enabled || false,
       criticalAlertsEnabled: row.critical_alerts_enabled !== undefined ? row.critical_alerts_enabled : DEFAULT_CRITICAL_ALERTS_ENABLED,
     }));
+}
+
+async function getBroadcastUsersWithSkipped() {
+  const db = getSupabase();
+  let { data, error } = await db
+    .from('user_subscriptions')
+    .select('user_id, preferred_language, status, ntfy_enabled, critical_alerts_enabled, ads_enabled');
+
+  if (error && isMissingColumnError(error)) {
+    ({ data, error } = await db
+      .from('user_subscriptions')
+      .select('user_id, status'));
+  }
+
+  if (error) throw error;
+
+  const total = (data || []).filter(row => row?.user_id).length;
+  const skipped = (data || []).filter(row => row?.user_id && row.status === 'active' && row.ads_enabled === false).length;
+
+  const recipients = (data || [])
+    .filter(row => row?.user_id)
+    .filter(row => !(row.status === 'active' && row.ads_enabled === false))
+    .map(row => ({
+      userId: row.user_id,
+      language: row.preferred_language || DEFAULT_LANGUAGE,
+      status: row.status || 'trial',
+      ntfyEnabled: row.ntfy_enabled || false,
+      criticalAlertsEnabled: row.critical_alerts_enabled !== undefined ? row.critical_alerts_enabled : DEFAULT_CRITICAL_ALERTS_ENABLED,
+    }));
+
+  return { recipients, total, skipped };
+}
+
+/**
+ * Enable or disable ads for a premium user
+ */
+async function setAdsEnabled(userId, enabled) {
+  const db = getSupabase();
+  const { error } = await db
+    .from('user_subscriptions')
+    .update({ ads_enabled: !!enabled, updated_at: new Date().toISOString() })
+    .eq('user_id', userId);
+  if (error && isMissingColumnError(error)) {
+    throw new Error('Database migration required for ads toggle');
+  }
+  if (error) throw error;
+  return !!enabled;
+}
+
+/**
+ * Check if user has a real active paid subscription (ignores BETA_FREE_MODE)
+ */
+async function isPremiumUser(userId) {
+  const db = getSupabase();
+  const now = new Date().toISOString();
+  const { data, error } = await db
+    .from('user_subscriptions')
+    .select('status, subscription_ends_at, ads_enabled')
+    .eq('user_id', userId)
+    .single();
+  if (error || !data) return false;
+  if (data.status !== 'active') return false;
+  if (!data.subscription_ends_at) return false;
+  return new Date(data.subscription_ends_at) > new Date();
+}
+
+/**
+ * Get count of premium users (status = active with valid subscription)
+ */
+async function getPremiumUsersCount() {
+  const db = getSupabase();
+  const now = new Date().toISOString();
+  const { count, error } = await db
+    .from('user_subscriptions')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'active')
+    .gt('subscription_ends_at', now);
+  if (error) throw error;
+  return count || 0;
 }
 
 module.exports = {
@@ -511,6 +597,10 @@ module.exports = {
   getCriticalAlertsEnabled,
   getFreeTierUsers,
   getBroadcastUsers,
+  getBroadcastUsersWithSkipped,
+  setAdsEnabled,
+  isPremiumUser,
+  getPremiumUsersCount,
   PAYMENT_ADDRESS,
   DAYS_PER_SUBSCRIPTION,
   SUBSCRIPTION_USD,
