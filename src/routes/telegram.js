@@ -1533,48 +1533,52 @@ async function processSubscribe(chatId) {
   const { ensureSubscription, getSubscriptionCost, PAYMENT_ADDRESS, getUserWallet } = require('../services/subscriptionService');
 
   try {
-    // Ensure subscription record (creates trial if new)
-    const sub = await ensureSubscription(chatId.toString());
+    await ensureSubscription(chatId.toString());
     const cost = await getSubscriptionCost();
     const userWallet = await getUserWallet(chatId.toString());
 
-    const lines = [
-      '💳 <b>Subscribe to SFL Watcher Pro</b>',
-      '',
-      `📅 <b>Status:</b> ${sub.status.toUpperCase()}`
-    ];
+    const isPremium = await isPremiumUser(chatId.toString());
 
-    if (sub.days_remaining !== undefined) {
-      lines.push(`⏰ ${sub.days_remaining} days remaining`);
+    const lines = ['💳 <b>SFL Watcher Pro</b>', ''];
+
+    if (isPremium) {
+      const supabase = require('../lib/supabase');
+      const { data } = await supabase
+        .from('user_subscriptions')
+        .select('subscription_ends_at')
+        .eq('user_id', chatId.toString())
+        .single();
+      let daysLeft = 0;
+      if (data?.subscription_ends_at) {
+        const diff = new Date(data.subscription_ends_at) - new Date();
+        daysLeft = Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+      }
+      lines.push(`✅ <b>Premium</b> — ${daysLeft} days remaining`);
+      lines.push('');
     }
 
     if (!userWallet) {
-      lines.push('');
       lines.push('⚠️ <b>No wallet connected!</b>');
       lines.push('Use /connectwallet &lt;address&gt; first.');
     } else {
-      lines.push('');
-      lines.push('<b>💰 Payment:</b>');
-      lines.push('Send FLOWER from your wallet to:');
+      lines.push('<b>💰 Pay 1 USD in FLOWER for 3 months ad-free:</b>');
       lines.push(`<code>${PAYMENT_ADDRESS}</code>`);
 
       if (cost) {
         lines.push('');
-        lines.push(`📦 Amount: <b>~${cost.flower_amount} FLOWER</b>`);
+        lines.push(`📦 ~${cost.flower_amount} FLOWER`);
         lines.push(`   (≈ $${cost.usd} USD at $${cost.flower_price_usd.toFixed(4)}/FLOWER)`);
-        lines.push(`📅 Duration: <b>${DAYS_PER_SUBSCRIPTION} days (3 months)</b>`);
       }
 
       lines.push('');
-      lines.push('After sending, use /pay to verify payment.');
+      lines.push('After sending, use /pay to verify.');
     }
 
     lines.push('');
     lines.push('<b>📋 How it works:</b>');
     lines.push('1. /connectwallet &lt;your_address&gt;');
-    lines.push('2. /subscribe to see amount');
-    lines.push('3. Send FLOWER from YOUR wallet');
-    lines.push(`4. /pay to activate (${DAYS_PER_SUBSCRIPTION} days)`);
+    lines.push('2. Send FLOWER to the address above');
+    lines.push('3. /pay to activate (90 days)');
 
     await sendTelegramAwait(chatId, lines.join('\n'));
 
