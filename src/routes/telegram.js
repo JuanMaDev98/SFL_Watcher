@@ -1767,7 +1767,7 @@ Task: Analyze the following user feedback logs and provide a structured plain-te
 
 Structure your response like this:
 - Use emojis at the start of each section (e.g., 🔍, 💡, ⚠️, 😊)
-- Use short paragraphs with line breaks (\n)
+- Use short paragraphs with line breaks (\\n)
 - Do NOT use bold (**text**), italics (*text*), headers (#), or any markup
 - Keep it under 1500 characters total so it fits in a Telegram message
 - If the analysis is too long, summarize more aggressively
